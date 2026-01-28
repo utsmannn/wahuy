@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  wasimple:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: wasimple
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - API_KEY=${API_KEY:-wasimple-default-api-key-change-me}
+      - DASHBOARD_ENABLED=true
+      - DASHBOARD_USERNAME=${DASHBOARD_USERNAME:-admin}
+      - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-admin123}
+      - LOG_LEVEL=info
+      - STORAGE_PATH=/app/data
+    volumes:
+      - wasimple_data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  wasimple_data:
+    driver: local
