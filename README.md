@@ -244,11 +244,85 @@ X-API-Key: your-api-key
 {
   "success": true,
   "data": {
-    "id": "true_6281234567890@c.us_3EB0...",
-    "from": "6289876543210@c.us",
+    "messageId": "true_6281234567890@c.us_3EB0...",
     "to": "6281234567890@c.us",
-    "body": "Hello from WASimple!",
+    "status": "sent",
     "timestamp": "2024-01-15T10:30:00.000Z"
+  }
+}
+```
+
+#### Send Image (Base64)
+```http
+POST /api/:sessionId/messages/send-image
+Content-Type: application/json
+X-API-Key: your-api-key
+
+{
+  "to": "6281234567890",
+  "base64Data": "/9j/4AAQSkZJRgABAQEASABIAAD...",
+  "mimeType": "image/jpeg",
+  "caption": "My image caption",
+  "filename": "photo.jpg"
+}
+```
+
+#### Send Document (Base64)
+```http
+POST /api/:sessionId/messages/send-document
+Content-Type: application/json
+X-API-Key: your-api-key
+
+{
+  "to": "6281234567890",
+  "base64Data": "JVBERi0xLjQKJcOkw7zDtsO...",
+  "mimeType": "application/pdf",
+  "filename": "document.pdf",
+  "caption": "My document"
+}
+```
+
+#### Send Location
+```http
+POST /api/:sessionId/messages/send-location
+Content-Type: application/json
+X-API-Key: your-api-key
+
+{
+  "to": "6281234567890",
+  "latitude": -6.2088,
+  "longitude": 106.8456,
+  "description": "Monas, Jakarta"
+}
+```
+
+#### Reply to Message
+```http
+POST /api/:sessionId/messages/reply
+Content-Type: application/json
+X-API-Key: your-api-key
+
+{
+  "to": "6281234567890",
+  "messageId": "true_6281234567890@c.us_3EB0...",
+  "text": "This is a reply"
+}
+```
+
+#### Get Chat History
+```http
+GET /api/:sessionId/chats/:phone/messages?limit=50
+X-API-Key: your-api-key
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "phone": "6281234567890",
+    "messages": [...],
+    "count": 50
   }
 }
 ```

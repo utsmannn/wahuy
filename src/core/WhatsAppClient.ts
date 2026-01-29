@@ -256,6 +256,81 @@ export class WhatsAppClient extends EventEmitter {
   }
 
   /**
+   * Send image message
+   */
+  async sendImage(to: string, imagePath: string, caption?: string): Promise<pkg.Message> {
+    const chatId = this.formatChatId(to);
+    const media = await pkg.MessageMedia.fromFilePath(imagePath);
+    return await this.client.sendMessage(chatId, media, { caption });
+  }
+
+  /**
+   * Send image from base64
+   */
+  async sendImageBase64(to: string, base64Data: string, mimeType: string, caption?: string, filename?: string): Promise<pkg.Message> {
+    const chatId = this.formatChatId(to);
+    const media = new pkg.MessageMedia(mimeType, base64Data, filename);
+    return await this.client.sendMessage(chatId, media, { caption });
+  }
+
+  /**
+   * Send document/file
+   */
+  async sendDocument(to: string, filePath: string, caption?: string, filename?: string): Promise<pkg.Message> {
+    const chatId = this.formatChatId(to);
+    const media = await pkg.MessageMedia.fromFilePath(filePath);
+    if (filename) {
+      media.filename = filename;
+    }
+    return await this.client.sendMessage(chatId, media, { caption, sendMediaAsDocument: true });
+  }
+
+  /**
+   * Send document from base64
+   */
+  async sendDocumentBase64(to: string, base64Data: string, mimeType: string, filename: string, caption?: string): Promise<pkg.Message> {
+    const chatId = this.formatChatId(to);
+    const media = new pkg.MessageMedia(mimeType, base64Data, filename);
+    return await this.client.sendMessage(chatId, media, { caption, sendMediaAsDocument: true });
+  }
+
+  /**
+   * Send location
+   */
+  async sendLocation(to: string, latitude: number, longitude: number, _description?: string): Promise<pkg.Message> {
+    const chatId = this.formatChatId(to);
+    const location = new pkg.Location(latitude, longitude);
+    return await this.client.sendMessage(chatId, location);
+  }
+
+  /**
+   * Reply to a message
+   */
+  async replyToMessage(to: string, messageId: string, text: string): Promise<pkg.Message> {
+    const chatId = this.formatChatId(to);
+    const chat = await this.client.getChatById(chatId);
+    const messages = await chat.fetchMessages({ limit: 100 });
+    const targetMsg = messages.find(m => m.id._serialized === messageId);
+
+    if (!targetMsg) {
+      throw new Error('Message not found');
+    }
+
+    return await targetMsg.reply(text);
+  }
+
+  /**
+   * Get chat messages
+   */
+  async getChatMessages(phone: string, limit: number = 50): Promise<unknown[]> {
+    const chatId = this.formatChatId(phone);
+    const chat = await this.client.getChatById(chatId);
+    const messages = await chat.fetchMessages({ limit });
+
+    return messages.map(msg => this.formatMessage(msg));
+  }
+
+  /**
    * Get session info
    */
   getInfo(): SessionInfo {
