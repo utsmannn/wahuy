@@ -1,4 +1,4 @@
-import { WifiOff, QrCode, Phone, Trash2, Power, PowerOff } from 'lucide-react';
+import { WifiOff, QrCode, Phone, Trash2, Power, PowerOff, Send } from 'lucide-react';
 import type { Session } from '../types';
 
 interface SessionCardProps {
@@ -8,6 +8,7 @@ interface SessionCardProps {
   onStop: () => void;
   onDelete: () => void;
   onLogout: () => void;
+  onSendMessage?: () => void;
 }
 
 const statusColors: Record<string, string> = {
@@ -36,7 +37,7 @@ const statusLabels: Record<string, string> = {
   failed: 'Auth Failed',
 };
 
-export function SessionCard({ session, qrCode, onStart, onStop, onDelete, onLogout }: SessionCardProps) {
+export function SessionCard({ session, qrCode, onStart, onStop, onDelete, onLogout, onSendMessage }: SessionCardProps) {
   const showQR = session.status === 'scan_qr' && qrCode;
   const isActive = ['ready', 'connected', 'authenticated', 'connecting', 'scan_qr', 'starting'].includes(session.status);
 
@@ -92,12 +93,20 @@ export function SessionCard({ session, qrCode, onStart, onStop, onDelete, onLogo
           </button>
         )}
         {session.status === 'ready' && (
-          <button
-            onClick={onLogout}
-            className="flex items-center gap-1 px-3 py-1.5 text-sm bg-orange-500 text-white rounded hover:bg-orange-600"
-          >
-            <WifiOff size={14} /> Logout
-          </button>
+          <>
+            <button
+              onClick={onSendMessage}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm bg-indigo-500 text-white rounded hover:bg-indigo-600"
+            >
+              <Send size={14} /> Send
+            </button>
+            <button
+              onClick={onLogout}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm bg-orange-500 text-white rounded hover:bg-orange-600"
+            >
+              <WifiOff size={14} /> Logout
+            </button>
+          </>
         )}
         <button
           onClick={onDelete}

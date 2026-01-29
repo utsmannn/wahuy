@@ -38,9 +38,34 @@ export interface HealthResponse {
   version: string;
   uptime: number;
   timestamp: string;
-  sessions: {
+  sessions?: {
     total: number;
     connected: number;
     disconnected: number;
   };
+  data?: {
+    sessions: {
+      total: number;
+      connected: number;
+      disconnected: number;
+    };
+  };
+}
+
+export interface Message {
+  id: string;
+  from: string;
+  to: string;
+  body: string;
+  type: string;
+  timestamp: string;
+  fromMe: boolean;
+  hasMedia: boolean;
+  media?: {
+    data: string;
+    mimetype: string;
+    filename?: string;
+  };
+  sessionId?: string;
+  receivedAt?: string;
 }

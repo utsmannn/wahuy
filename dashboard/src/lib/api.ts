@@ -65,6 +65,28 @@ export const api = {
   deleteWebhook: (id: string) => request<{ success: boolean }>(`/webhooks/${id}`, { method: 'DELETE' }),
   testWebhook: (id: string) => request<{ success: boolean; data: { statusCode: number; responseTime: number } }>(`/webhooks/${id}/test`, { method: 'POST' }),
 
+  // Messages
+  sendMessage: (sessionId: string, to: string, text: string) =>
+    request<{ success: boolean; data: { messageId: string } }>(`/sessions/${sessionId}/messages/send`, {
+      method: 'POST',
+      body: JSON.stringify({ to, text }),
+    }),
+  sendImage: (sessionId: string, to: string, base64Data: string, mimeType: string, caption?: string, filename?: string) =>
+    request<{ success: boolean; data: { messageId: string } }>(`/sessions/${sessionId}/messages/send-image`, {
+      method: 'POST',
+      body: JSON.stringify({ to, base64Data, mimeType, caption, filename }),
+    }),
+  sendDocument: (sessionId: string, to: string, base64Data: string, mimeType: string, filename: string, caption?: string) =>
+    request<{ success: boolean; data: { messageId: string } }>(`/sessions/${sessionId}/messages/send-document`, {
+      method: 'POST',
+      body: JSON.stringify({ to, base64Data, mimeType, filename, caption }),
+    }),
+  sendLocation: (sessionId: string, to: string, latitude: number, longitude: number, description?: string) =>
+    request<{ success: boolean; data: { messageId: string } }>(`/sessions/${sessionId}/messages/send-location`, {
+      method: 'POST',
+      body: JSON.stringify({ to, latitude, longitude, description }),
+    }),
+
   // Health
   getHealth: () => request<import('../types').HealthResponse>('/health'),
 };
