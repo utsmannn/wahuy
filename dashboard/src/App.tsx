@@ -11,13 +11,15 @@ import {
   X,
   Wifi,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  Activity
 } from 'lucide-react';
 import { Login } from './components/Login';
 import { SessionCard } from './components/SessionCard';
 import { CreateSessionModal } from './components/CreateSessionModal';
 import { WebhookList } from './components/WebhookList';
 import { WebhookForm } from './components/WebhookForm';
+import { WebhookMonitor } from './components/WebhookMonitor';
 import { MessageViewer } from './components/MessageViewer';
 import { SendMessageModal } from './components/SendMessageModal';
 import { useWebSocket } from './hooks/useWebSocket';
@@ -37,6 +39,7 @@ function App() {
   const [showCreateSession, setShowCreateSession] = useState(false);
   const [showWebhookForm, setShowWebhookForm] = useState(false);
   const [showSendMessage, setShowSendMessage] = useState(false);
+  const [showWebhookMonitor, setShowWebhookMonitor] = useState(false);
   const [selectedSession, setSelectedSession] = useState<string>('');
   const [editingWebhook, setEditingWebhook] = useState<WebhookType | undefined>();
   const [loading, setLoading] = useState(false);
@@ -419,16 +422,25 @@ function App() {
                     Configure webhooks to receive real-time events
                   </p>
                 </div>
-                <button
-                  onClick={() => {
-                    setEditingWebhook(undefined);
-                    setShowWebhookForm(true);
-                  }}
-                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-                >
-                  <Plus size={18} />
-                  Add Webhook
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowWebhookMonitor(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                  >
+                    <Activity size={18} />
+                    Monitor
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEditingWebhook(undefined);
+                      setShowWebhookForm(true);
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                  >
+                    <Plus size={18} />
+                    Add Webhook
+                  </button>
+                </div>
               </div>
 
               <div className="bg-white rounded-xl shadow-sm border border-gray-100">
@@ -588,6 +600,11 @@ const isValid = verifyWebhook(req.body, signature, WEBHOOK_SECRET);`}
           setEditingWebhook(undefined);
         }}
         onSave={handleSaveWebhook}
+      />
+
+      <WebhookMonitor
+        isOpen={showWebhookMonitor}
+        onClose={() => setShowWebhookMonitor(false)}
       />
 
       <SendMessageModal
