@@ -157,15 +157,17 @@ export class WhatsAppClient extends EventEmitter {
       }
     });
 
-    this.client.on('message', (msg: pkg.Message) => {
+    this.client.on('message', async (msg: pkg.Message) => {
       this.lastActivity = new Date();
-      this.emit('message', this.formatMessage(msg));
+      const formatted = await this.formatMessage(msg);
+      this.emit('message', formatted);
     });
 
-    this.client.on('message_create', (msg: pkg.Message) => {
+    this.client.on('message_create', async (msg: pkg.Message) => {
       if (msg.fromMe) {
         this.lastActivity = new Date();
-        this.emit('message_sent', this.formatMessage(msg));
+        const formatted = await this.formatMessage(msg);
+        this.emit('message_sent', formatted);
       }
     });
 
@@ -178,8 +180,8 @@ export class WhatsAppClient extends EventEmitter {
     });
   }
 
-  private formatMessage(msg: pkg.Message): object {
-    return {
+  private async formatMessage(msg: pkg.Message): Promise<object> {
+    const baseMessage = {
       id: msg.id._serialized,
       from: msg.from,
       to: msg.to,
@@ -190,6 +192,27 @@ export class WhatsAppClient extends EventEmitter {
       hasMedia: msg.hasMedia,
       isForwarded: msg.isForwarded
     };
+
+    // Download media if present
+    if (msg.hasMedia) {
+      try {
+        const media = await msg.downloadMedia();
+        if (media) {
+          return {
+            ...baseMessage,
+            media: {
+              data: media.data,
+              mimetype: media.mimetype,
+              filename: media.filename || null
+            }
+          };
+        }
+      } catch (error) {
+        logger.warn({ sessionId: this.id, messageId: msg.id._serialized, error }, 'Failed to download media');
+      }
+    }
+
+    return baseMessage;
   }
 
   private getAckName(ack: number): string {
@@ -327,7 +350,7 @@ export class WhatsAppClient extends EventEmitter {
     const chat = await this.client.getChatById(chatId);
     const messages = await chat.fetchMessages({ limit });
 
-    return messages.map(msg => this.formatMessage(msg));
+    return Promise.all(messages.map(msg => this.formatMessage(msg)));
   }
 
   /**
