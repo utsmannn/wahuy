@@ -2,18 +2,17 @@
  * WhatsApp Client Wrapper
  *
  * Wraps whatsapp-web.js Client with additional functionality.
- *
- * TODO: Complete implementation
  */
 
 import { EventEmitter } from 'events';
-import { Client, LocalAuth, Message } from 'whatsapp-web.js';
+import pkg from 'whatsapp-web.js';
+const { Client, LocalAuth } = pkg;
 import { logger } from '../utils/logger.js';
 import { config } from '../config.js';
 import type { SessionState, SessionInfo } from '../types/session.js';
 
 export class WhatsAppClient extends EventEmitter {
-  private client: Client;
+  private client: InstanceType<typeof Client>;
   private id: string;
   private name: string;
   private status: SessionState = 'created';
@@ -22,6 +21,7 @@ export class WhatsAppClient extends EventEmitter {
   private qrCode: string | null = null;
   private createdAt: Date;
   private lastActivity: Date | null = null;
+  private readyTimeout: NodeJS.Timeout | null = null;
 
   constructor(id: string, name?: string) {
     super();
@@ -36,30 +36,62 @@ export class WhatsAppClient extends EventEmitter {
         dataPath: config.storage.path + '/sessions'
       }),
       puppeteer: {
-        headless: config.puppeteer.headless,
-        args: config.puppeteer.args,
-        executablePath: config.puppeteer.executablePath
-      }
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--disable-gpu',
+          '--disable-crashpad',
+          '--disable-crash-reporter',
+          '--single-process',
+          '--no-initial-navigation',
+          '--disable-blink-features=AutomationControlled',
+          '--disable-features=IsolateOrigins,site-per-process',
+          '--disable-site-isolation-trials'
+        ]
+      },
+      webVersionCache: {
+        type: 'remote',
+        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1031592179-alpha.html',
+      },
     });
 
     this.setupEventHandlers();
   }
 
   private setupEventHandlers(): void {
-    this.client.on('qr', (qr) => {
+    this.client.on('qr', (qr: string) => {
       this.qrCode = qr;
       this.status = 'scan_qr';
       logger.info({ sessionId: this.id }, 'QR code generated');
       this.emit('qr', qr);
     });
 
+    this.client.on('loading_screen', (percent: number, message: string) => {
+      this.status = 'connecting';
+      logger.info({ sessionId: this.id, percent, message }, 'Loading screen');
+      this.emit('status', 'connecting');
+    });
+
     this.client.on('authenticated', () => {
       this.status = 'connecting';
       logger.info({ sessionId: this.id }, 'Authenticated');
       this.emit('authenticated');
+
+      // Set timeout for ready event
+      this.readyTimeout = setTimeout(() => {
+        if (this.status !== 'ready') {
+          logger.warn({ sessionId: this.id }, 'Ready timeout - client stuck after authenticated');
+          this.emit('auth_failure', 'Ready timeout after authenticated');
+        }
+      }, 30000);
     });
 
-    this.client.on('auth_failure', (msg) => {
+    this.client.on('auth_failure', (msg: string) => {
       this.status = 'failed';
       logger.error({ sessionId: this.id, msg }, 'Auth failed');
       this.emit('auth_failure', msg);
@@ -68,6 +100,12 @@ export class WhatsAppClient extends EventEmitter {
     this.client.on('ready', () => {
       this.status = 'ready';
       this.qrCode = null;
+
+      // Clear ready timeout
+      if (this.readyTimeout) {
+        clearTimeout(this.readyTimeout);
+        this.readyTimeout = null;
+      }
 
       // Get client info
       const info = this.client.info;
@@ -85,30 +123,53 @@ export class WhatsAppClient extends EventEmitter {
       this.emit('ready');
     });
 
-    this.client.on('disconnected', (reason) => {
+    this.client.on('disconnected', (reason: string) => {
       this.status = 'disconnected';
       logger.warn({ sessionId: this.id, reason }, 'Disconnected');
+      if (this.readyTimeout) {
+        clearTimeout(this.readyTimeout);
+        this.readyTimeout = null;
+      }
       this.emit('disconnected', reason);
+    });
 
-      // Auto-reconnect if enabled
-      if (config.session.restartOnAuthFail) {
-        this.scheduleReconnect();
+    this.client.on('change_state', (state: string) => {
+      logger.info({ sessionId: this.id, state }, 'State changed');
+      // Map whatsapp-web.js states to our states
+      const stateMap: Record<string, SessionState> = {
+        'CONFLICT': 'connecting',
+        'CONNECTED': 'ready',
+        'DEPRECATED': 'failed',
+        'OPENING': 'starting',
+        'PAIRING': 'connecting',
+        'PROXYBLOCK': 'failed',
+        'SMB_TOS_BLOCK': 'failed',
+        'TIMEOUT': 'failed',
+        'TOS_BLOCK': 'failed',
+        'UNLAUNCHED': 'connecting',
+        'UNPAIRED': 'disconnected',
+        'UNPAIRED_IDLE': 'disconnected'
+      };
+      const newStatus = stateMap[state];
+      if (newStatus) {
+        this.status = newStatus;
+        this.emit('status', newStatus);
       }
     });
 
-    this.client.on('message', (msg) => {
+    this.client.on('message', (msg: pkg.Message) => {
       this.lastActivity = new Date();
       this.emit('message', this.formatMessage(msg));
     });
 
-    this.client.on('message_create', (msg) => {
+    this.client.on('message_create', (msg: pkg.Message) => {
       if (msg.fromMe) {
         this.lastActivity = new Date();
         this.emit('message_sent', this.formatMessage(msg));
       }
     });
 
-    this.client.on('message_ack', (msg, ack) => {
+    this.client.on('message_ack', (msg: pkg.Message, ack: number) => {
       this.emit('message_ack', {
         id: msg.id._serialized,
         ack,
@@ -117,7 +178,7 @@ export class WhatsAppClient extends EventEmitter {
     });
   }
 
-  private formatMessage(msg: Message): object {
+  private formatMessage(msg: pkg.Message): object {
     return {
       id: msg.id._serialized,
       from: msg.from,
@@ -142,11 +203,6 @@ export class WhatsAppClient extends EventEmitter {
     return names[ack] ?? 'unknown';
   }
 
-  private scheduleReconnect(): void {
-    // TODO: Implement reconnection with exponential backoff
-    logger.info({ sessionId: this.id }, 'Scheduling reconnect...');
-  }
-
   /**
    * Start the client
    */
@@ -169,9 +225,13 @@ export class WhatsAppClient extends EventEmitter {
    * Destroy the client and clean up
    */
   async destroy(): Promise<void> {
+    if (this.readyTimeout) {
+      clearTimeout(this.readyTimeout);
+      this.readyTimeout = null;
+    }
     try {
       await this.client.destroy();
-    } catch (error) {
+    } catch {
       // Ignore errors during destroy
     }
     this.removeAllListeners();
@@ -190,7 +250,7 @@ export class WhatsAppClient extends EventEmitter {
   /**
    * Send text message
    */
-  async sendMessage(to: string, text: string): Promise<Message> {
+  async sendMessage(to: string, text: string): Promise<pkg.Message> {
     const chatId = this.formatChatId(to);
     return await this.client.sendMessage(chatId, text);
   }

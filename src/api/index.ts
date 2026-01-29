@@ -24,3 +24,7 @@ export async function registerRoutes(server: FastifyInstance): Promise<void> {
     await protectedServer.register(webhookRoutes, { prefix: '/webhooks' });
   }, { prefix: '/api' });
 }
+
+// Re-export core modules for routes
+export { sessionManager } from '../core/SessionManager.js';
+export { webhookDispatcher } from '../core/WebhookDispatcher.js';

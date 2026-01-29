@@ -2,13 +2,13 @@
  * Webhook Dispatcher
  *
  * Dispatches events to registered webhook URLs.
- *
- * TODO: Complete implementation
  */
 
 import { EventEmitter } from 'events';
+import { createHmac } from 'crypto';
 import { logger } from '../utils/logger.js';
 import { config } from '../config.js';
+import { storage } from '../storage/index.js';
 import type { Webhook, WebhookEvent, WebhookDelivery } from '../types/webhook.js';
 
 interface QueuedEvent {
@@ -22,6 +22,7 @@ export class WebhookDispatcher extends EventEmitter {
   private webhooks: Map<string, Webhook> = new Map();
   private queue: QueuedEvent[] = [];
   private processing = false;
+  private initialized = false;
 
   constructor() {
     super();
@@ -29,22 +30,82 @@ export class WebhookDispatcher extends EventEmitter {
   }
 
   /**
+   * Initialize dispatcher and load webhooks from storage
+   */
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
+
+    const storedWebhooks = await storage.getWebhooks();
+    logger.info({ count: storedWebhooks.length }, 'Loading webhooks from storage');
+
+    for (const stored of storedWebhooks) {
+      this.webhooks.set(stored.id, {
+        ...stored,
+        stats: { totalSent: 0, totalFailed: 0 }
+      });
+    }
+
+    this.initialized = true;
+    logger.info('WebhookDispatcher initialized');
+  }
+
+  /**
    * Register a new webhook
    */
-  registerWebhook(webhook: Webhook): void {
+  async registerWebhook(webhook: Webhook): Promise<void> {
     this.webhooks.set(webhook.id, webhook);
+
+    // Save to storage
+    await storage.saveWebhook({
+      id: webhook.id,
+      url: webhook.url,
+      events: webhook.events,
+      sessions: webhook.sessions,
+      secret: webhook.secret,
+      active: webhook.active,
+      createdAt: webhook.createdAt
+    });
+
     logger.info({ webhookId: webhook.id, url: webhook.url }, 'Webhook registered');
   }
 
   /**
    * Remove a webhook
    */
-  removeWebhook(id: string): boolean {
+  async removeWebhook(id: string): Promise<boolean> {
     const deleted = this.webhooks.delete(id);
     if (deleted) {
+      await storage.deleteWebhook(id);
       logger.info({ webhookId: id }, 'Webhook removed');
     }
     return deleted;
+  }
+
+  /**
+   * Update a webhook
+   */
+  async updateWebhook(id: string, updates: Partial<Webhook>): Promise<Webhook | null> {
+    const webhook = this.webhooks.get(id);
+    if (!webhook) return null;
+
+    const updated = {
+      ...webhook,
+      ...updates,
+      updatedAt: new Date().toISOString()
+    };
+
+    this.webhooks.set(id, updated);
+
+    await storage.updateWebhook(id, {
+      url: updated.url,
+      events: updated.events,
+      sessions: updated.sessions,
+      secret: updated.secret,
+      active: updated.active
+    });
+
+    logger.info({ webhookId: id }, 'Webhook updated');
+    return updated;
   }
 
   /**
@@ -135,7 +196,7 @@ export class WebhookDispatcher extends EventEmitter {
    * Deliver a single event
    */
   private async deliverEvent(queuedEvent: QueuedEvent): Promise<void> {
-    const { webhook, event, attempts } = queuedEvent;
+    const { webhook, event } = queuedEvent;
 
     try {
       const startTime = Date.now();
@@ -158,8 +219,9 @@ export class WebhookDispatcher extends EventEmitter {
       const responseTime = Date.now() - startTime;
 
       if (response.ok) {
-        // Success - remove from queue
+        // Success - remove from queue and update stats
         this.removeFromQueue(queuedEvent);
+        this.updateStats(webhook.id, true);
         logger.debug({
           webhookId: webhook.id,
           event: event.event,
@@ -181,8 +243,9 @@ export class WebhookDispatcher extends EventEmitter {
     queuedEvent.attempts++;
 
     if (queuedEvent.attempts >= config.webhook.retryCount) {
-      // Max retries reached - remove from queue
+      // Max retries reached - remove from queue and update stats
       this.removeFromQueue(queuedEvent);
+      this.updateStats(queuedEvent.webhook.id, false);
       logger.error({
         webhookId: queuedEvent.webhook.id,
         event: queuedEvent.event.event,
@@ -213,12 +276,29 @@ export class WebhookDispatcher extends EventEmitter {
   }
 
   /**
+   * Update webhook delivery stats
+   */
+  private updateStats(webhookId: string, success: boolean): void {
+    const webhook = this.webhooks.get(webhookId);
+    if (!webhook) return;
+
+    if (!webhook.stats) {
+      webhook.stats = { totalSent: 0, totalFailed: 0 };
+    }
+
+    if (success) {
+      webhook.stats.totalSent++;
+    } else {
+      webhook.stats.totalFailed++;
+    }
+    webhook.stats.lastTriggered = new Date().toISOString();
+  }
+
+  /**
    * Generate HMAC signature for webhook payload
    */
   private generateSignature(event: WebhookEvent, secret: string): string {
-    // TODO: Implement HMAC-SHA256 signature
-    const crypto = require('crypto');
-    const hmac = crypto.createHmac('sha256', secret);
+    const hmac = createHmac('sha256', secret);
     hmac.update(JSON.stringify(event));
     return 'sha256=' + hmac.digest('hex');
   }

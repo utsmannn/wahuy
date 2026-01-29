@@ -8,10 +8,10 @@ services:
     container_name: wasimple
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "7834:7834"
     environment:
       - NODE_ENV=production
-      - PORT=3000
+      - PORT=7834
       - API_KEY=${API_KEY:-wasimple-default-api-key-change-me}
       - DASHBOARD_ENABLED=true
       - DASHBOARD_USERNAME=${DASHBOARD_USERNAME:-admin}
@@ -21,7 +21,7 @@ services:
     volumes:
       - wasimple_data:/app/data
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:7834/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3

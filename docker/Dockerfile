@@ -5,24 +5,30 @@ WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
+COPY dashboard/package*.json ./dashboard/
 
 # Install all dependencies (including dev)
 RUN npm ci
+RUN cd dashboard && npm ci
 
 # Copy source
 COPY tsconfig.json ./
 COPY src ./src
+COPY dashboard ./dashboard
 
 # Build TypeScript
 RUN npm run build
 
+# Build dashboard
+RUN cd dashboard && npm run build
+
 # Production stage
 FROM node:20-slim
 
-# Install minimal dependencies for whatsapp-web.js
-# Note: Full Chromium is only needed for video sending
+# Install Chromium and dependencies for Puppeteer
 RUN apt-get update && apt-get install -y \
     ca-certificates \
+    chromium \
     fonts-liberation \
     libappindicator3-1 \
     libasound2 \
@@ -42,6 +48,14 @@ RUN apt-get update && apt-get install -y \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
+# Tell Puppeteer to use system Chromium
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+
+# Disable Chrome crashpad
+ENV CHROME_DEVEL_SANDBOX=/usr/local/sbin/chrome-devel-sandbox
+ENV CHROME_BIN=/usr/bin/chromium
+
 WORKDIR /app
 
 # Copy package files
@@ -53,29 +67,29 @@ RUN npm ci --only=production
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
 
-# Copy dashboard (if exists)
-# COPY dashboard/dist ./dashboard/dist
+# Copy dashboard static files
+COPY --from=builder /app/dashboard/dist ./dashboard/dist
 
 # Create data directory
 RUN mkdir -p /app/data/sessions
 
 # Environment defaults
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=7834
 ENV STORAGE_PATH=/app/data
 ENV LOG_LEVEL=info
 
 # Expose port
-EXPOSE 3000
+EXPOSE 7834
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:7834/api/health || exit 1
 
-# Run as non-root user
-RUN groupadd -r wasimple && useradd -r -g wasimple wasimple
-RUN chown -R wasimple:wasimple /app
-USER wasimple
+# Create writable directories for Chrome
+RUN mkdir -p /tmp/chrome-crashpad /app/.cache/puppeteer
 
+# Run as root (required for Chrome sandbox in Docker)
+# Note: For production, consider using --cap-add=SYS_ADMIN instead
 # Start application
 CMD ["node", "dist/index.js"]

@@ -1,88 +1,155 @@
 /**
  * Session management routes
- *
- * TODO: Implement these endpoints with SessionManager
  */
 
 import { FastifyInstance } from 'fastify';
+import QRCode from 'qrcode';
+import { nanoid } from 'nanoid';
+import { sessionManager } from '../../core/SessionManager.js';
 
 export async function sessionRoutes(server: FastifyInstance): Promise<void> {
   // List all sessions
   server.get('/', async () => {
-    // TODO: Implement
+    const sessions = sessionManager.listSessions();
     return {
       success: true,
-      data: []
+      data: sessions
     };
   });
 
   // Create session
-  server.post('/', async (request) => {
+  server.post('/', async (request, reply) => {
     const body = request.body as { id?: string; name?: string };
+    const id = body.id ?? nanoid(10);
 
-    // TODO: Implement with SessionManager
-    return {
-      success: true,
-      data: {
-        id: body.id ?? 'session-1',
-        name: body.name ?? 'New Session',
-        status: 'created',
-        createdAt: new Date().toISOString()
+    try {
+      const session = await sessionManager.createSession(id, body.name);
+      reply.status(201);
+      return {
+        success: true,
+        data: session
+      };
+    } catch (error) {
+      const err = error as Error;
+      if (err.message.includes('already exists')) {
+        reply.status(409);
+        return {
+          success: false,
+          error: {
+            code: 'SESSION_ALREADY_EXISTS',
+            message: err.message
+          }
+        };
       }
-    };
+      throw error;
+    }
   });
 
   // Get session
-  server.get('/:sessionId', async (request) => {
+  server.get('/:sessionId', async (request, reply) => {
     const { sessionId } = request.params as { sessionId: string };
+    const client = sessionManager.getSession(sessionId);
 
-    // TODO: Implement
+    if (!client) {
+      reply.status(404);
+      return {
+        success: false,
+        error: {
+          code: 'SESSION_NOT_FOUND',
+          message: `Session '${sessionId}' not found`
+        }
+      };
+    }
+
     return {
       success: true,
-      data: {
-        id: sessionId,
-        status: 'created'
-      }
+      data: client.getInfo()
     };
   });
 
   // Delete session
-  server.delete('/:sessionId', async (request) => {
+  server.delete('/:sessionId', async (request, reply) => {
     const { sessionId } = request.params as { sessionId: string };
 
-    // TODO: Implement
-    return {
-      success: true,
-      message: `Session ${sessionId} deleted`
-    };
+    try {
+      await sessionManager.deleteSession(sessionId);
+      return {
+        success: true,
+        message: `Session ${sessionId} deleted`
+      };
+    } catch (error) {
+      const err = error as Error;
+      if (err.message.includes('not found')) {
+        reply.status(404);
+        return {
+          success: false,
+          error: {
+            code: 'SESSION_NOT_FOUND',
+            message: err.message
+          }
+        };
+      }
+      throw error;
+    }
   });
 
   // Start session
-  server.post('/:sessionId/start', async (request) => {
+  server.post('/:sessionId/start', async (request, reply) => {
     const { sessionId } = request.params as { sessionId: string };
 
-    // TODO: Implement
-    return {
-      success: true,
-      data: {
-        id: sessionId,
-        status: 'starting'
+    try {
+      await sessionManager.startSession(sessionId);
+      const client = sessionManager.getSession(sessionId);
+      return {
+        success: true,
+        data: {
+          id: sessionId,
+          status: client?.getStatus() ?? 'starting'
+        }
+      };
+    } catch (error) {
+      const err = error as Error;
+      if (err.message.includes('not found')) {
+        reply.status(404);
+        return {
+          success: false,
+          error: {
+            code: 'SESSION_NOT_FOUND',
+            message: err.message
+          }
+        };
       }
-    };
+      throw error;
+    }
   });
 
   // Stop session
-  server.post('/:sessionId/stop', async (request) => {
+  server.post('/:sessionId/stop', async (request, reply) => {
     const { sessionId } = request.params as { sessionId: string };
 
-    // TODO: Implement
-    return {
-      success: true,
-      data: {
-        id: sessionId,
-        status: 'stopped'
+    try {
+      await sessionManager.stopSession(sessionId);
+      return {
+        success: true,
+        data: {
+          id: sessionId,
+          status: 'stopped'
+        }
+      };
+    } catch (error) {
+      const err = error as Error;
+      if (err.message.includes('not found')) {
+        reply.status(404);
+        return {
+          success: false,
+          error: {
+            code: 'SESSION_NOT_FOUND',
+            message: err.message
+          }
+        };
       }
-    };
+      throw error;
+    }
   });
 
   // Get QR code
@@ -90,30 +157,75 @@ export async function sessionRoutes(server: FastifyInstance): Promise<void> {
     const { sessionId } = request.params as { sessionId: string };
     const accept = request.headers.accept ?? 'application/json';
 
-    // TODO: Implement with QRCodeManager
-    if (accept.includes('image/png')) {
-      // Return PNG image
-      reply.type('image/png');
-      return Buffer.from(''); // TODO: Return actual QR image
-    }
+    try {
+      const qr = sessionManager.getQRCode(sessionId);
 
-    return {
-      success: true,
-      data: {
-        qr: 'data:image/png;base64,...', // TODO: Return actual QR
-        expiresAt: new Date(Date.now() + 60000).toISOString()
+      if (!qr) {
+        reply.status(404);
+        return {
+          success: false,
+          error: {
+            code: 'QR_NOT_AVAILABLE',
+            message: 'QR code not available. Session may already be authenticated or not started.'
+          }
+        };
       }
-    };
+
+      // Return PNG image if requested
+      if (accept.includes('image/png')) {
+        const buffer = await QRCode.toBuffer(qr, { width: 300, margin: 2 });
+        reply.type('image/png').send(buffer);
+        return;
+      }
+
+      // Return JSON with base64 QR
+      const dataUrl = await QRCode.toDataURL(qr, { width: 300, margin: 2 });
+      return {
+        success: true,
+        data: {
+          qr: dataUrl,
+          expiresAt: new Date(Date.now() + 60000).toISOString()
+        }
+      };
+    } catch (error) {
+      const err = error as Error;
+      if (err.message.includes('not found')) {
+        reply.status(404);
+        return {
+          success: false,
+          error: {
+            code: 'SESSION_NOT_FOUND',
+            message: err.message
+          }
+        };
+      }
+      throw error;
+    }
   });
 
   // Logout session
-  server.post('/:sessionId/logout', async (request) => {
+  server.post('/:sessionId/logout', async (request, reply) => {
     const { sessionId } = request.params as { sessionId: string };
 
-    // TODO: Implement
-    return {
-      success: true,
-      message: `Session ${sessionId} logged out`
-    };
+    try {
+      await sessionManager.logoutSession(sessionId);
+      return {
+        success: true,
+        message: `Session ${sessionId} logged out`
+      };
+    } catch (error) {
+      const err = error as Error;
+      if (err.message.includes('not found')) {
+        reply.status(404);
+        return {
+          success: false,
+          error: {
+            code: 'SESSION_NOT_FOUND',
+            message: err.message
+          }
+        };
+      }
+      throw error;
+    }
   });
 }

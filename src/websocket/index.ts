@@ -1,0 +1,238 @@
+/**
+ * WebSocket server setup with Socket.io
+ */
+
+import { Server as HttpServer } from 'http';
+import { Server } from 'socket.io';
+import QRCode from 'qrcode';
+import { config } from '../config.js';
+import { logger } from '../utils/logger.js';
+import { sessionManager } from '../core/SessionManager.js';
+import type { SubscribePayload, UnsubscribePayload } from './types.js';
+
+let io: Server | null = null;
+
+/**
+ * Convert QR string to data URL
+ */
+async function qrToDataURL(qr: string): Promise<string> {
+  try {
+    return await QRCode.toDataURL(qr, { width: 256, margin: 2 });
+  } catch {
+    return qr; // Return raw string if conversion fails
+  }
+}
+
+/**
+ * Initialize WebSocket server
+ */
+export function initWebSocket(httpServer: HttpServer): Server {
+  io = new Server(httpServer, {
+    cors: {
+      origin: '*',
+      credentials: true
+    },
+    path: '/socket.io'
+  });
+
+  // Authentication middleware
+  io.use((socket, next) => {
+    const apiKey = socket.handshake.auth.apiKey as string;
+
+    if (!apiKey) {
+      return next(new Error('Missing API key'));
+    }
+
+    const validKeys = config.apiKeys.length > 0 ? config.apiKeys : [config.apiKey];
+
+    if (!validKeys.includes(apiKey)) {
+      return next(new Error('Invalid API key'));
+    }
+
+    next();
+  });
+
+  // Connection handler
+  io.on('connection', (socket) => {
+    logger.info({ socketId: socket.id }, 'Client connected');
+
+    // Track subscribed sessions for this socket
+    const subscribedSessions = new Set<string>();
+
+    // Subscribe to session events
+    socket.on('subscribe', (payload: SubscribePayload) => {
+      const { sessions, events } = payload;
+
+      for (const sessionId of sessions) {
+        subscribedSessions.add(sessionId);
+        socket.join(`session:${sessionId}`);
+      }
+
+      logger.debug({
+        socketId: socket.id,
+        sessions,
+        events
+      }, 'Client subscribed');
+
+      socket.emit('subscribed', { sessions: Array.from(subscribedSessions) });
+    });
+
+    // Unsubscribe from session events
+    socket.on('unsubscribe', (payload: UnsubscribePayload) => {
+      const { sessions } = payload;
+
+      for (const sessionId of sessions) {
+        subscribedSessions.delete(sessionId);
+        socket.leave(`session:${sessionId}`);
+      }
+
+      logger.debug({
+        socketId: socket.id,
+        sessions
+      }, 'Client unsubscribed');
+    });
+
+    // Get current session list
+    socket.on('getSessions', () => {
+      const sessions = sessionManager.listSessions();
+      socket.emit('sessions', sessions);
+    });
+
+    // Disconnect handler
+    socket.on('disconnect', (reason) => {
+      logger.info({ socketId: socket.id, reason }, 'Client disconnected');
+    });
+  });
+
+  // Wire session manager events to socket
+  wireSessionEvents();
+
+  logger.info('WebSocket server initialized');
+  return io;
+}
+
+/**
+ * Wire SessionManager events to Socket.io
+ */
+function wireSessionEvents(): void {
+  if (!io) return;
+
+  sessionManager.on('session:qr', async (data) => {
+    const qrDataURL = await qrToDataURL(data.qr);
+    io?.to(`session:${data.sessionId}`).emit('session:qr', {
+      sessionId: data.sessionId,
+      qr: qrDataURL
+    });
+    // Also emit to wildcard subscribers
+    io?.to('session:*').emit('session:qr', {
+      sessionId: data.sessionId,
+      qr: qrDataURL
+    });
+  });
+
+  sessionManager.on('session:status', (data) => {
+    io?.to(`session:${data.sessionId}`).emit('session:status', {
+      sessionId: data.sessionId,
+      status: data.status
+    });
+    io?.to('session:*').emit('session:status', {
+      sessionId: data.sessionId,
+      status: data.status
+    });
+  });
+
+  sessionManager.on('session:authenticated', (data) => {
+    io?.to(`session:${data.sessionId}`).emit('session:status', {
+      sessionId: data.sessionId,
+      status: 'connecting'
+    });
+    io?.to('session:*').emit('session:status', {
+      sessionId: data.sessionId,
+      status: 'connecting'
+    });
+  });
+
+  sessionManager.on('session:auth_failure', (data) => {
+    io?.to(`session:${data.sessionId}`).emit('session:status', {
+      sessionId: data.sessionId,
+      status: 'failed',
+      reason: data.reason
+    });
+    io?.to('session:*').emit('session:status', {
+      sessionId: data.sessionId,
+      status: 'failed',
+      reason: data.reason
+    });
+  });
+
+  sessionManager.on('session:ready', (data) => {
+    io?.to(`session:${data.sessionId}`).emit('session:status', {
+      sessionId: data.sessionId,
+      status: 'ready',
+      phone: data.phone,
+      pushName: data.pushName
+    });
+    io?.to('session:*').emit('session:status', {
+      sessionId: data.sessionId,
+      status: 'ready',
+      phone: data.phone,
+      pushName: data.pushName
+    });
+  });
+
+  sessionManager.on('session:disconnected', (data) => {
+    io?.to(`session:${data.sessionId}`).emit('session:status', {
+      sessionId: data.sessionId,
+      status: 'disconnected',
+      reason: data.reason
+    });
+    io?.to('session:*').emit('session:status', {
+      sessionId: data.sessionId,
+      status: 'disconnected',
+      reason: data.reason
+    });
+  });
+
+  sessionManager.on('message:received', (data) => {
+    io?.to(`session:${data.sessionId}`).emit('message:received', {
+      sessionId: data.sessionId,
+      message: data.message
+    });
+    io?.to('session:*').emit('message:received', {
+      sessionId: data.sessionId,
+      message: data.message
+    });
+  });
+
+  sessionManager.on('message:sent', (data) => {
+    io?.to(`session:${data.sessionId}`).emit('message:sent', {
+      sessionId: data.sessionId,
+      message: data.message
+    });
+    io?.to('session:*').emit('message:sent', {
+      sessionId: data.sessionId,
+      message: data.message
+    });
+  });
+}
+
+/**
+ * Get Socket.io server instance
+ */
+export function getIO(): Server | null {
+  return io;
+}
+
+/**
+ * Broadcast to all connected clients
+ */
+export function broadcast(event: string, data: unknown): void {
+  io?.emit(event, data);
+}
+
+/**
+ * Emit to specific session room
+ */
+export function emitToSession(sessionId: string, event: string, data: unknown): void {
+  io?.to(`session:${sessionId}`).emit(event, data);
+}

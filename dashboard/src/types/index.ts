@@ -1,0 +1,46 @@
+export interface Session {
+  id: string;
+  name?: string;
+  status: 'created' | 'starting' | 'scan_qr' | 'connecting' | 'ready' | 'disconnected' | 'stopped' | 'failed';
+  phone?: string | null;
+  pushName?: string | null;
+  qr?: string | null;
+  createdAt?: string;
+  lastActivity?: string;
+}
+
+export interface Webhook {
+  id: string;
+  url: string;
+  events: string[];
+  sessions?: string[];
+  secret?: string;
+  active: boolean;
+  createdAt?: string;
+  stats?: {
+    totalSent: number;
+    totalFailed: number;
+    lastTriggered?: string;
+  };
+}
+
+export interface ApiResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: {
+    code: string;
+    message: string;
+  };
+}
+
+export interface HealthResponse {
+  status: string;
+  version: string;
+  uptime: number;
+  timestamp: string;
+  sessions: {
+    total: number;
+    connected: number;
+    disconnected: number;
+  };
+}

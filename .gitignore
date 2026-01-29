@@ -6,7 +6,8 @@ dist/
 dashboard/dist/
 
 # Runtime data
-data/
+data/*
+!data/.gitkeep
 *.log
 
 # Environment
@@ -31,3 +32,14 @@ coverage/
 # Misc
 *.tgz
 *.tar.gz
+
+# Markdown files (except README.md)
+*.md
+!README.md
+
+# Context files
+.context/
+
+# Plans
+IMPLEMENTATION_PLAN.md
+PROGRESS.md
