@@ -4,6 +4,7 @@ A self-hosted WhatsApp Multi-Session API service. Manage multiple WhatsApp numbe
 
 [![Node.js](https://img.shields.io/badge/Node.js-20+-green.svg)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-blue.svg)](https://www.typescriptlang.org/)
+[![Docker](https://img.shields.io/badge/Docker-GHCR-blue.svg)](https://ghcr.io)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ## Features
@@ -13,7 +14,11 @@ A self-hosted WhatsApp Multi-Session API service. Manage multiple WhatsApp numbe
 - **WebSocket Real-time**: Live events for QR codes, messages, and status changes
 - **Webhook Integration**: Forward events to your endpoints with HMAC signatures
 - **Dashboard UI**: Built-in React dashboard for easy management
-- **File-based Storage**: No database required, simple JSON file storage
+- **Message Persistence**: SQLite-based message history that survives restarts
+- **Auto-Reconnect**: Automatic reconnection with exponential backoff on disconnection
+- **Typing Indicator**: Show "typing..." status before sending messages
+- **Read Receipts**: Mark messages as read (blue checkmarks)
+- **Multi-format Support**: Send text, images, documents, and locations
 - **TypeScript**: Fully typed for better developer experience
 
 ## Table of Contents
@@ -60,7 +65,7 @@ npm run build
 npm start
 
 # Access dashboard
-open http://localhost:3000
+open http://localhost:7834
 ```
 
 ## Installation
@@ -100,7 +105,7 @@ Create `.env` file in project root:
 
 ```env
 # Server
-PORT=3000
+PORT=7834
 NODE_ENV=development
 
 # Security
@@ -126,6 +131,8 @@ LOG_LEVEL=info
 ## API Documentation
 
 All endpoints require `X-API-Key` header.
+
+**Base URL:** `http://localhost:7834/api`
 
 ### Sessions
 
@@ -218,6 +225,82 @@ POST /api/sessions/:sessionId/logout
 X-API-Key: your-api-key
 ```
 
+#### Get Detailed Status (with Error & Reconnect Info)
+```http
+GET /api/sessions/:sessionId/status
+X-API-Key: your-api-key
+```
+
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "id": "my-session",
+    "name": "My Session",
+    "status": "ready",
+    "phone": "6281234567890",
+    "pushName": "John Doe",
+    "isConnected": true,
+    "lastError": null,
+    "reconnect": {
+      "enabled": true,
+      "attempts": 0,
+      "maxAttempts": 5,
+      "nextAttemptAt": null,
+      "lastAttemptAt": null
+    },
+    "createdAt": "2024-01-15T10:00:00.000Z",
+    "lastActivity": "2024-01-15T12:30:00.000Z"
+  }
+}
+```
+
+When disconnected with error:
+```json
+{
+  "success": true,
+  "data": {
+    "status": "reconnecting",
+    "isConnected": false,
+    "lastError": {
+      "code": "DISCONNECTED",
+      "message": "Connection closed",
+      "timestamp": "2024-01-15T12:35:00.000Z"
+    },
+    "reconnect": {
+      "enabled": true,
+      "attempts": 2,
+      "maxAttempts": 5,
+      "nextAttemptAt": "2024-01-15T12:35:20.000Z",
+      "lastAttemptAt": "2024-01-15T12:35:10.000Z"
+    }
+  }
+}
+```
+
+#### Enable/Disable Auto-Reconnect
+```http
+POST /api/sessions/:sessionId/reconnect
+X-API-Key: your-api-key
+Content-Type: application/json
+
+{
+  "enabled": false
+}
+```
+
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "id": "my-session",
+    "autoReconnectEnabled": false
+  }
+}
+```
+
 #### Delete Session
 ```http
 DELETE /api/sessions/:sessionId
@@ -226,18 +309,87 @@ X-API-Key: your-api-key
 
 ### Messages
 
+#### Understanding WhatsApp ID Formats
+
+WhatsApp uses different ID formats for identifying users:
+
+| Format | Example | Description |
+|--------|---------|-------------|
+| `@c.us` | `6281234567890@c.us` | Classic WhatsApp ID (phone-based) |
+| `@lid` | `6281234567890@lid` | Linked ID - newer internal format |
+| `@g.us` | `123456789@g.us` | Group chat ID |
+
+**Important:** WhatsApp is transitioning to `@lid` format for some accounts. The `@lid` is an internal identifier and may not directly correspond to a phone number. To get the actual phone number, use the `contacts` field in message objects (see below).
+
+#### Message Object Structure
+
+All received messages include a `contacts` field with resolved contact information:
+
+```json
+{
+  "id": "true_6281234567890@lid_3EB0...",
+  "from": "6281234567890@lid",
+  "to": "6287654321098@c.us",
+  "body": "Hello!",
+  "type": "chat",
+  "timestamp": "2024-01-15T10:30:00.000Z",
+  "fromMe": false,
+  "hasMedia": false,
+  "isForwarded": false,
+  "contacts": {
+    "sender": {
+      "id": "6281234567890@lid",
+      "number": "6281234567890",
+      "name": "John Doe",
+      "pushname": "Johnny",
+      "shortName": "John",
+      "isBusiness": false,
+      "isEnterprise": false,
+      "isMe": false
+    },
+    "receiver": {
+      "id": "6287654321098@c.us",
+      "number": "6287654321098",
+      "name": null,
+      "pushname": "My Business",
+      "shortName": null,
+      "isBusiness": true,
+      "isEnterprise": false,
+      "isMe": true
+    }
+  }
+}
+```
+
+**Contact Fields:**
+| Field | Description |
+|-------|-------------|
+| `id` | WhatsApp ID (may be `@c.us` or `@lid`) |
+| `number` | **Actual phone number** (use this for reliable phone identification) |
+| `name` | Contact name as saved in your contacts |
+| `pushname` | Name the user has set for themselves |
+| `shortName` | Shortened version of name |
+| `isBusiness` | Whether this is a WhatsApp Business account |
+| `isEnterprise` | Whether this is an enterprise account |
+| `isMe` | Whether this contact is the current session |
+
 #### Send Text Message
 ```http
-POST /api/messages/send
+POST /api/sessions/:sessionId/messages/send
 Content-Type: application/json
 X-API-Key: your-api-key
 
 {
-  "sessionId": "my-session",
   "to": "6281234567890",
   "text": "Hello from WASimple!"
 }
 ```
+
+**Note:** The `to` field supports multiple formats:
+- Phone number: `6281234567890` (auto-converts to `6281234567890@c.us`)
+- Full JID: `6281234567890@c.us` (preserved as-is)
+- LID format: `6281234567890@lid` (preserved as-is)
+- Group: `123456789@g.us` (preserved as-is)
 
 **Response:**
 ```json
@@ -254,7 +406,7 @@ X-API-Key: your-api-key
 
 #### Send Image (Base64)
 ```http
-POST /api/:sessionId/messages/send-image
+POST /api/sessions/:sessionId/messages/send-image
 Content-Type: application/json
 X-API-Key: your-api-key
 
@@ -269,7 +421,7 @@ X-API-Key: your-api-key
 
 #### Send Document (Base64)
 ```http
-POST /api/:sessionId/messages/send-document
+POST /api/sessions/:sessionId/messages/send-document
 Content-Type: application/json
 X-API-Key: your-api-key
 
@@ -284,7 +436,7 @@ X-API-Key: your-api-key
 
 #### Send Location
 ```http
-POST /api/:sessionId/messages/send-location
+POST /api/sessions/:sessionId/messages/send-location
 Content-Type: application/json
 X-API-Key: your-api-key
 
@@ -298,7 +450,7 @@ X-API-Key: your-api-key
 
 #### Reply to Message
 ```http
-POST /api/:sessionId/messages/reply
+POST /api/sessions/:sessionId/messages/reply
 Content-Type: application/json
 X-API-Key: your-api-key
 
@@ -309,9 +461,9 @@ X-API-Key: your-api-key
 }
 ```
 
-#### Get Chat History
+#### Get Chat History (from WhatsApp)
 ```http
-GET /api/:sessionId/chats/:phone/messages?limit=50
+GET /api/sessions/:sessionId/chats/:phone/messages?limit=50
 X-API-Key: your-api-key
 ```
 
@@ -325,6 +477,266 @@ X-API-Key: your-api-key
     "count": 50
   }
 }
+```
+
+#### Get Conversation (from Persistent Storage)
+
+Get all messages between a session and a phone number (both sent and received) from the SQLite database.
+
+```http
+GET /api/sessions/:sessionId/conversations/:phone?limit=100&offset=0
+X-API-Key: your-api-key
+```
+
+**Parameters:**
+- `:sessionId` - The session ID
+- `:phone` - Phone number (with or without country code, e.g., `6281234567890` or `081234567890`)
+- `limit` (optional) - Max messages to return (default: 100)
+- `offset` (optional) - Pagination offset (default: 0)
+
+**Example:**
+```http
+GET /api/sessions/main/conversations/6281234567890?limit=50
+X-API-Key: your-api-key
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "sessionId": "main",
+    "phone": "6281234567890",
+    "messages": [
+      {
+        "id": "true_6281234567890@c.us_3EB0...",
+        "from": "6281234567890@c.us",
+        "to": "6287654321098@c.us",
+        "body": "Hello!",
+        "type": "chat",
+        "timestamp": "2024-01-15T10:30:00.000Z",
+        "fromMe": false,
+        "hasMedia": false,
+        "contacts": {
+          "sender": {
+            "id": "6281234567890@c.us",
+            "number": "6281234567890",
+            "name": "John Doe",
+            "pushname": "Johnny"
+          },
+          "receiver": { ... }
+        }
+      },
+      {
+        "id": "true_6287654321098@c.us_3EB1...",
+        "from": "6287654321098@c.us",
+        "to": "6281234567890@c.us",
+        "body": "Hi back!",
+        "type": "chat",
+        "timestamp": "2024-01-15T10:31:00.000Z",
+        "fromMe": true,
+        "hasMedia": false,
+        "contacts": { ... }
+      }
+    ],
+    "count": 2,
+    "total": 150,
+    "offset": 0,
+    "limit": 100
+  }
+}
+```
+
+**Note:** This endpoint queries the persistent SQLite storage, so it returns messages that have been saved since the message persistence feature was enabled. For real-time chat history directly from WhatsApp, use the `/chats/:phone/messages` endpoint instead.
+
+### Typing Indicator
+
+Show "typing..." status in the chat before sending a message.
+
+```http
+POST /api/sessions/:sessionId/typing
+Content-Type: application/json
+X-API-Key: your-api-key
+
+{
+  "to": "6281234567890@c.us",
+  "duration": 3000
+}
+```
+
+**Parameters:**
+- `to` (required): Recipient phone number or JID
+- `duration` (optional): Duration in milliseconds (default: 3000, max: 25000)
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "to": "6281234567890@c.us",
+    "duration": 3000,
+    "status": "typing"
+  }
+}
+```
+
+### Recording Indicator
+
+Show "recording..." status (for voice messages).
+
+```http
+POST /api/sessions/:sessionId/recording
+Content-Type: application/json
+X-API-Key: your-api-key
+
+{
+  "to": "6281234567890@c.us",
+  "duration": 3000
+}
+```
+
+### Read Receipt (Blue Checkmark)
+
+Mark a chat or specific message as read.
+
+```http
+POST /api/sessions/:sessionId/read
+Content-Type: application/json
+X-API-Key: your-api-key
+
+{
+  "chatId": "6281234567890@c.us"
+}
+```
+
+Or mark by message ID:
+
+```http
+POST /api/sessions/:sessionId/read
+Content-Type: application/json
+X-API-Key: your-api-key
+
+{
+  "messageId": "true_6281234567890@c.us_3EB0..."
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "chatId": "6281234567890@c.us",
+    "status": "read"
+  }
+}
+```
+
+### Message History (Persistent Storage)
+
+Messages are automatically saved to SQLite database and persist across restarts.
+
+#### Get Message History
+```http
+GET /api/sessions/messages/history
+X-API-Key: your-api-key
+```
+
+**Query Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `sessionId` | string | Filter by session |
+| `from` | string | Filter by sender (partial match) |
+| `to` | string | Filter by recipient (partial match) |
+| `type` | string | Filter by message type (chat, image, etc.) |
+| `fromMe` | boolean | Filter sent/received messages |
+| `hasMedia` | boolean | Filter messages with media |
+| `startDate` | string | Filter from date (ISO 8601) |
+| `endDate` | string | Filter to date (ISO 8601) |
+| `search` | string | Search in message body |
+| `limit` | number | Max results (default: 100) |
+| `offset` | number | Pagination offset |
+
+**Example:**
+```http
+GET /api/sessions/messages/history?sessionId=main&fromMe=false&limit=50
+X-API-Key: your-api-key
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "messages": [
+      {
+        "id": "true_6281234567890@c.us_3EB0...",
+        "sessionId": "main",
+        "from": "6281234567890@c.us",
+        "to": "6287654321098@c.us",
+        "body": "Hello!",
+        "type": "chat",
+        "timestamp": "2024-01-15T10:30:00.000Z",
+        "fromMe": false,
+        "hasMedia": false,
+        "receivedAt": "2024-01-15T10:30:01.000Z"
+      }
+    ],
+    "count": 1,
+    "total": 150,
+    "offset": 0,
+    "limit": 100
+  }
+}
+```
+
+#### Get Message Statistics
+```http
+GET /api/sessions/messages/stats
+X-API-Key: your-api-key
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "total": 1500,
+    "bySession": {
+      "main": 1000,
+      "secondary": 500
+    },
+    "byType": {
+      "chat": 1200,
+      "image": 200,
+      "document": 100
+    },
+    "received": 800,
+    "sent": 700
+  }
+}
+```
+
+#### Clear Message History
+```http
+DELETE /api/sessions/messages/history
+X-API-Key: your-api-key
+```
+
+**Query Parameters:**
+- `sessionId`: Clear only messages from this session
+- `olderThan`: Clear messages older than this date (ISO 8601)
+
+**Examples:**
+```http
+# Clear all messages
+DELETE /api/sessions/messages/history
+
+# Clear messages for specific session
+DELETE /api/sessions/messages/history?sessionId=main
+
+# Clear messages older than 30 days
+DELETE /api/sessions/messages/history?olderThan=2024-01-01T00:00:00.000Z
 ```
 
 ### Webhooks
@@ -343,12 +755,16 @@ X-API-Key: your-api-key
 ```
 
 **Events Available:**
-- `message:received` - Incoming message
-- `message:sent` - Outgoing message
-- `message:ack` - Message delivery status
-- `session:qr` - QR code generated
-- `session:ready` - Session connected
-- `session:disconnected` - Session disconnected
+- `message.received` - Incoming message
+- `message.sent` - Outgoing message
+- `message.ack` - Message delivery status
+- `session.qr_updated` - QR code generated
+- `session.authenticated` - Session authenticated
+- `session.ready` - Session connected and ready
+- `session.disconnected` - Session disconnected
+- `session.auth_failure` - Authentication failed
+- `session.reconnecting` - Session attempting reconnect
+- `session.failed` - Session permanently failed (max retries exceeded)
 
 #### List Webhooks
 ```http
@@ -407,7 +823,7 @@ Connect to WebSocket for real-time updates:
 ```javascript
 import { io } from 'socket.io-client';
 
-const socket = io('http://localhost:3000', {
+const socket = io('http://localhost:7834', {
   auth: { apiKey: 'your-api-key' }
 });
 
@@ -489,12 +905,12 @@ const isValid = verifyWebhook(req.body, signature, WEBHOOK_SECRET);
 
 ## Dashboard
 
-Access the built-in dashboard at `http://localhost:3000`
+Access the built-in dashboard at `http://localhost:7834`
 
 Features:
 - Session management (create, start, stop, delete)
 - Real-time QR code display
-- Message viewer
+- Message viewer with persistent history
 - Webhook configuration
 - Connection status
 
@@ -504,7 +920,52 @@ Enter your API key on the login screen to access the dashboard.
 
 ## Docker Deployment
 
-### Using Docker Compose
+### Using Pre-built Image from GHCR (Recommended)
+
+The easiest way to deploy WASimple is using the pre-built Docker image from GitHub Container Registry:
+
+```bash
+# Pull and run the latest image
+docker run -d \
+  --name wasimple \
+  -p 7834:7834 \
+  -e API_KEY=your-secret-key \
+  -e DASHBOARD_ENABLED=true \
+  -v wasimple_data:/app/data \
+  ghcr.io/kjafrih/wasimple:latest
+```
+
+Or create a `docker-compose.yml`:
+
+```yaml
+services:
+  wasimple:
+    image: ghcr.io/kjafrih/wasimple:latest
+    container_name: wasimple
+    restart: unless-stopped
+    ports:
+      - "7834:7834"
+    environment:
+      - NODE_ENV=production
+      - PORT=7834
+      - API_KEY=${API_KEY:-wasimple-default-api-key-change-me}
+      - DASHBOARD_ENABLED=true
+      - LOG_LEVEL=info
+      - STORAGE_PATH=/app/data
+    volumes:
+      - wasimple_data:/app/data
+
+volumes:
+  wasimple_data:
+    driver: local
+```
+
+Then run:
+```bash
+docker-compose up -d
+```
+
+### Using Docker Compose (Build from Source)
 
 The included `docker-compose.yml` runs WASimple on port **7834**.
 
@@ -559,6 +1020,14 @@ Access:
 - API: http://localhost:7834/api
 - Health: http://localhost:7834/api/health
 
+### Data Persistence
+
+All data is stored in the Docker volume `wasimple_data`:
+- `sessions.json` - Session configurations
+- `webhooks.json` - Webhook configurations
+- `messages.db` - SQLite database for message history
+- `sessions/` - WhatsApp session data (auth, cache)
+
 ### Using Docker
 
 ```bash
@@ -595,7 +1064,14 @@ docker run -d \
 
 1. Check browser console for WebSocket errors
 2. Verify API key is correct
-3. Check server logs: `tail -f logs/app.log`
+3. Check server logs:
+   ```bash
+   # Docker
+   docker-compose logs -f wasimple
+
+   # Local development (logs output to terminal)
+   npm run dev
+   ```
 
 ### Webhook not receiving events
 
@@ -670,15 +1146,19 @@ wasimple/
 ├── src/
 │   ├── api/           # REST API routes
 │   ├── core/          # Core business logic
-│   ├── storage/       # File storage implementation
+│   ├── storage/       # File & SQLite storage
 │   ├── websocket/     # WebSocket server
 │   ├── types/         # TypeScript types
 │   └── utils/         # Utilities
 ├── dashboard/         # React dashboard
-├── data/             # Storage directory
-├── logs/             # Log files
-├── dist/             # Compiled output
-└── tests/            # Test files
+├── data/              # Storage directory
+│   ├── sessions.json  # Session configs
+│   ├── webhooks.json  # Webhook configs
+│   ├── messages.db    # SQLite message history
+│   └── sessions/      # WhatsApp auth data
+├── docker/            # Docker configuration
+├── dist/              # Compiled output
+└── tests/             # Test files
 ```
 
 ## Security Considerations
@@ -704,7 +1184,6 @@ MIT License - see [LICENSE](LICENSE) file
 ## Support
 
 - GitHub Issues: [Report bugs](https://github.com/yourusername/wasimple/issues)
-- Documentation: [Full docs](https://docs.wasimple.dev)
 
 ---
 

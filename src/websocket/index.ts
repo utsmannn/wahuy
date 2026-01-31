@@ -8,6 +8,7 @@ import QRCode from 'qrcode';
 import { config } from '../config.js';
 import { logger } from '../utils/logger.js';
 import { sessionManager } from '../core/SessionManager.js';
+import { messageStorage, StoredMessage } from '../storage/MessageStorage.js';
 import type { SubscribePayload, UnsubscribePayload } from './types.js';
 
 let io: Server | null = null;
@@ -194,6 +195,23 @@ function wireSessionEvents(): void {
   });
 
   sessionManager.on('message:received', (data) => {
+    // Save to persistent storage
+    const storedMessage: StoredMessage = {
+      id: data.message.id,
+      sessionId: data.sessionId,
+      from: data.message.from,
+      to: data.message.to || '',
+      body: data.message.body || '',
+      type: data.message.type || 'chat',
+      timestamp: data.message.timestamp,
+      fromMe: data.message.fromMe || false,
+      hasMedia: data.message.hasMedia || false,
+      mediaType: data.message.mediaType,
+      mediaPath: data.message.mediaPath,
+      receivedAt: new Date().toISOString(),
+    };
+    messageStorage.saveMessage(storedMessage, data.message);
+
     io?.to(`session:${data.sessionId}`).emit('message:received', {
       sessionId: data.sessionId,
       message: data.message
@@ -205,6 +223,23 @@ function wireSessionEvents(): void {
   });
 
   sessionManager.on('message:sent', (data) => {
+    // Save to persistent storage
+    const storedMessage: StoredMessage = {
+      id: data.message.id,
+      sessionId: data.sessionId,
+      from: data.message.from || '',
+      to: data.message.to,
+      body: data.message.body || '',
+      type: data.message.type || 'chat',
+      timestamp: data.message.timestamp,
+      fromMe: true,
+      hasMedia: data.message.hasMedia || false,
+      mediaType: data.message.mediaType,
+      mediaPath: data.message.mediaPath,
+      receivedAt: new Date().toISOString(),
+    };
+    messageStorage.saveMessage(storedMessage, data.message);
+
     io?.to(`session:${data.sessionId}`).emit('message:sent', {
       sessionId: data.sessionId,
       message: data.message

@@ -30,6 +30,9 @@ async function main(): Promise<void> {
     // Wire session events to webhook dispatcher
     wireEventsToWebhooks();
 
+    // Auto-start existing sessions
+    await autoStartSessions();
+
     // Create and start server
     server = await createServer();
 
@@ -45,6 +48,32 @@ async function main(): Promise<void> {
   } catch (error) {
     logger.fatal(error, 'Failed to start WASimple');
     process.exit(1);
+  }
+}
+
+/**
+ * Auto-start all sessions from storage
+ */
+async function autoStartSessions(): Promise<void> {
+  const sessions = sessionManager.listSessions();
+  logger.info({ count: sessions.length }, 'Auto-starting sessions');
+
+  for (const session of sessions) {
+    try {
+      // Auto-start all sessions that were loaded from storage (status: created)
+      // or were previously active (ready/connecting/starting)
+      if (session.status === 'created' || ['ready', 'connecting', 'starting'].includes(session.status)) {
+        logger.info({ sessionId: session.id, status: session.status }, 'Auto-starting session');
+        await sessionManager.startSession(session.id);
+        logger.info({ sessionId: session.id }, 'Session auto-started');
+      } else {
+        logger.debug({ sessionId: session.id, status: session.status }, 'Skipping auto-start for session');
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      logger.error({ sessionId: session.id, error: errorMessage, stack: errorStack }, 'Failed to auto-start session');
+    }
   }
 }
 
@@ -72,6 +101,27 @@ function wireEventsToWebhooks(): void {
   sessionManager.on('session:disconnected', (data) => {
     webhookDispatcher.dispatch('session.disconnected', data.sessionId, {
       reason: data.reason
+    });
+  });
+
+  sessionManager.on('session:auth_failure', (data) => {
+    webhookDispatcher.dispatch('session.auth_failure', data.sessionId, {
+      reason: data.reason
+    });
+  });
+
+  sessionManager.on('session:reconnecting', (data) => {
+    webhookDispatcher.dispatch('session.reconnecting', data.sessionId, {
+      attempt: data.attempt,
+      maxAttempts: data.maxAttempts,
+      nextAttemptAt: data.nextAttemptAt
+    });
+  });
+
+  sessionManager.on('session:failed', (data) => {
+    webhookDispatcher.dispatch('session.failed', data.sessionId, {
+      reason: data.reason,
+      lastError: data.lastError
     });
   });
 

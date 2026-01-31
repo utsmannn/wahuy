@@ -1,9 +1,10 @@
 /**
- * Message routes - Phase 5: Media messages
+ * Message routes - Phase 5: Media messages + Message History
  */
 
 import { FastifyInstance } from 'fastify';
 import { sessionManager } from '../../core/SessionManager.js';
+import { messageStorage, MessageQuery } from '../../storage/MessageStorage.js';
 import { logger } from '../../utils/logger.js';
 
 // Helper to validate session
@@ -299,6 +300,169 @@ export async function messageRoutes(server: FastifyInstance): Promise<void> {
     }
   });
 
+  // Send typing indicator
+  server.post('/:sessionId/typing', async (request, reply) => {
+    const { sessionId } = request.params as { sessionId: string };
+    const body = request.body as { to: string; duration?: number };
+
+    const validation = validateSession(sessionId, reply);
+    if (!validation.success || !validation.client) return validation;
+    const client = validation.client;
+
+    if (!body.to) {
+      reply.status(400);
+      return {
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Missing required field: to'
+        }
+      };
+    }
+
+    try {
+      const duration = body.duration ?? 3000;
+      await client.sendTyping(body.to, duration);
+      return {
+        success: true,
+        data: {
+          to: body.to,
+          duration,
+          status: 'typing'
+        }
+      };
+    } catch (error) {
+      const err = error as Error;
+      logger.error({ sessionId, error: err.message }, 'Failed to send typing indicator');
+      reply.status(500);
+      return {
+        success: false,
+        error: {
+          code: 'TYPING_FAILED',
+          message: err.message
+        }
+      };
+    }
+  });
+
+  // Send recording indicator
+  server.post('/:sessionId/recording', async (request, reply) => {
+    const { sessionId } = request.params as { sessionId: string };
+    const body = request.body as { to: string; duration?: number };
+
+    const validation = validateSession(sessionId, reply);
+    if (!validation.success || !validation.client) return validation;
+    const client = validation.client;
+
+    if (!body.to) {
+      reply.status(400);
+      return {
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Missing required field: to'
+        }
+      };
+    }
+
+    try {
+      const duration = body.duration ?? 3000;
+      await client.sendRecording(body.to, duration);
+      return {
+        success: true,
+        data: {
+          to: body.to,
+          duration,
+          status: 'recording'
+        }
+      };
+    } catch (error) {
+      const err = error as Error;
+      logger.error({ sessionId, error: err.message }, 'Failed to send recording indicator');
+      reply.status(500);
+      return {
+        success: false,
+        error: {
+          code: 'RECORDING_FAILED',
+          message: err.message
+        }
+      };
+    }
+  });
+
+  // Mark chat/message as read (send seen / blue checkmark)
+  server.post('/:sessionId/read', async (request, reply) => {
+    const { sessionId } = request.params as { sessionId: string };
+    const body = request.body as { chatId?: string; messageId?: string };
+
+    const validation = validateSession(sessionId, reply);
+    if (!validation.success || !validation.client) return validation;
+    const client = validation.client;
+
+    if (!body.chatId && !body.messageId) {
+      reply.status(400);
+      return {
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Provide either chatId or messageId'
+        }
+      };
+    }
+
+    try {
+      if (body.messageId) {
+        await client.markMessageAsRead(body.messageId);
+      } else if (body.chatId) {
+        await client.markAsRead(body.chatId);
+      }
+      return {
+        success: true,
+        data: {
+          chatId: body.chatId,
+          messageId: body.messageId,
+          status: 'read'
+        }
+      };
+    } catch (error) {
+      const err = error as Error;
+      logger.error({ sessionId, error: err.message }, 'Failed to mark as read');
+      reply.status(500);
+      return {
+        success: false,
+        error: {
+          code: 'READ_FAILED',
+          message: err.message
+        }
+      };
+    }
+  });
+
+  // Get conversation messages from persistent storage
+  // Returns all messages between a session and a phone number (both sent and received)
+  server.get('/:sessionId/conversations/:phone', async (request) => {
+    const { sessionId, phone } = request.params as { sessionId: string; phone: string };
+    const query = request.query as { limit?: string; offset?: string };
+    const limit = parseInt(query.limit || '100', 10);
+    const offset = parseInt(query.offset || '0', 10);
+
+    const messages = messageStorage.getConversation(sessionId, phone, limit, offset);
+    const total = messageStorage.getConversationCount(sessionId, phone);
+
+    return {
+      success: true,
+      data: {
+        sessionId,
+        phone,
+        messages,
+        count: messages.length,
+        total,
+        offset,
+        limit,
+      }
+    };
+  });
+
   // Get chat messages - Phase 5
   server.get('/:sessionId/chats/:phone/messages', async (request, reply) => {
     const { sessionId, phone } = request.params as { sessionId: string; phone: string };
@@ -331,5 +495,81 @@ export async function messageRoutes(server: FastifyInstance): Promise<void> {
         }
       };
     }
+  });
+
+  // Get message history from persistent storage
+  server.get('/messages/history', async (request) => {
+    const query = request.query as {
+      sessionId?: string;
+      from?: string;
+      to?: string;
+      type?: string;
+      fromMe?: string;
+      hasMedia?: string;
+      startDate?: string;
+      endDate?: string;
+      search?: string;
+      limit?: string;
+      offset?: string;
+    };
+
+    const messageQuery: MessageQuery = {
+      sessionId: query.sessionId,
+      from: query.from,
+      to: query.to,
+      type: query.type,
+      fromMe: query.fromMe !== undefined ? query.fromMe === 'true' : undefined,
+      hasMedia: query.hasMedia !== undefined ? query.hasMedia === 'true' : undefined,
+      startDate: query.startDate,
+      endDate: query.endDate,
+      search: query.search,
+      limit: query.limit ? parseInt(query.limit, 10) : 100,
+      offset: query.offset ? parseInt(query.offset, 10) : 0,
+    };
+
+    const messages = messageStorage.getMessages(messageQuery);
+    const stats = messageStorage.getStats();
+
+    return {
+      success: true,
+      data: {
+        messages,
+        count: messages.length,
+        total: stats.total,
+        offset: messageQuery.offset,
+        limit: messageQuery.limit,
+      }
+    };
+  });
+
+  // Get message statistics
+  server.get('/messages/stats', async () => {
+    const stats = messageStorage.getStats();
+    return {
+      success: true,
+      data: stats
+    };
+  });
+
+  // Clear message history
+  server.delete('/messages/history', async (request) => {
+    const query = request.query as { sessionId?: string; olderThan?: string };
+
+    let deleted = 0;
+    if (query.sessionId) {
+      deleted = messageStorage.deleteBySession(query.sessionId);
+    } else if (query.olderThan) {
+      deleted = messageStorage.deleteOlderThan(query.olderThan);
+    } else {
+      deleted = messageStorage.deleteAll();
+    }
+
+    return {
+      success: true,
+      data: {
+        deleted,
+        message: `Deleted ${deleted} messages`
+      }
+    };
   });
 }

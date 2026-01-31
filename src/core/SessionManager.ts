@@ -8,6 +8,9 @@ import { EventEmitter } from 'events';
 import { WhatsAppClient } from './WhatsAppClient.js';
 import { logger } from '../utils/logger.js';
 import { storage } from '../storage/index.js';
+import { config } from '../config.js';
+import fs from 'fs';
+import path from 'path';
 import type { SessionInfo } from '../types/session.js';
 
 export class SessionManager extends EventEmitter {
@@ -47,6 +50,9 @@ export class SessionManager extends EventEmitter {
     client.on('auth_failure', (msg) => this.emit('session:auth_failure', { sessionId: id, reason: msg }));
     client.on('ready', () => this.emit('session:ready', { sessionId: id, ...client.getInfo() }));
     client.on('disconnected', (reason) => this.emit('session:disconnected', { sessionId: id, reason }));
+    client.on('reconnecting', (data) => this.emit('session:reconnecting', { sessionId: id, ...data }));
+    client.on('failed', (data) => this.emit('session:failed', { sessionId: id, ...data }));
+    client.on('status', (status) => this.emit('session:status', { sessionId: id, status }));
     client.on('message', (msg) => this.emit('message:received', { sessionId: id, message: msg }));
     client.on('message_sent', (msg) => this.emit('message:sent', { sessionId: id, message: msg }));
     client.on('message_ack', (data) => this.emit('message:ack', { sessionId: id, ...data }));
@@ -100,6 +106,76 @@ export class SessionManager extends EventEmitter {
   }
 
   /**
+   * Clear Chrome lock files for a session
+   * This fixes "profile appears to be in use by another Chromium process" error
+   */
+  private clearChromeLocks(sessionId: string): void {
+    const sessionPath = path.join(config.storage.path, 'sessions', `session-${sessionId}`);
+    logger.info({ sessionId, sessionPath, storagePath: config.storage.path }, 'Clearing Chrome locks...');
+
+    if (!fs.existsSync(sessionPath)) {
+      logger.warn({ sessionId, sessionPath }, 'Session path does not exist, skipping lock clearing');
+      return;
+    }
+
+    try {
+      // Remove Singleton files from session root
+      const singletonFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
+      for (const file of singletonFiles) {
+        const filePath = path.join(sessionPath, file);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+          logger.debug({ sessionId, file }, 'Removed Chrome lock file');
+        }
+      }
+
+      // Remove any .lock files from session root
+      const files = fs.readdirSync(sessionPath);
+      for (const file of files) {
+        if (file.endsWith('.lock')) {
+          fs.unlinkSync(path.join(sessionPath, file));
+          logger.debug({ sessionId, file }, 'Removed lock file');
+        }
+      }
+
+      // Remove Singleton files from Default folder (Chrome profile)
+      const defaultPath = path.join(sessionPath, 'Default');
+      if (fs.existsSync(defaultPath)) {
+        for (const file of singletonFiles) {
+          const filePath = path.join(defaultPath, file);
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            logger.debug({ sessionId, file: `Default/${file}` }, 'Removed Chrome lock file from Default');
+          }
+        }
+
+        // Remove any .lock files from Default folder
+        const defaultFiles = fs.readdirSync(defaultPath);
+        for (const file of defaultFiles) {
+          if (file.endsWith('.lock')) {
+            fs.unlinkSync(path.join(defaultPath, file));
+            logger.debug({ sessionId, file: `Default/${file}` }, 'Removed lock file from Default');
+          }
+        }
+      }
+
+      // Count remaining lock files
+      const remainingLocks = [
+        ...singletonFiles.filter(f => fs.existsSync(path.join(sessionPath, f))),
+        ...singletonFiles.filter(f => fs.existsSync(path.join(defaultPath, f)))
+      ];
+
+      if (remainingLocks.length > 0) {
+        logger.warn({ sessionId, remainingLocks }, 'Some lock files still exist after clearing');
+      } else {
+        logger.info({ sessionId }, 'Cleared Chrome lock files');
+      }
+    } catch (error) {
+      logger.warn({ sessionId, error }, 'Failed to clear some Chrome lock files');
+    }
+  }
+
+  /**
    * Start a session
    */
   async startSession(id: string): Promise<void> {
@@ -107,6 +183,10 @@ export class SessionManager extends EventEmitter {
     if (!client) {
       throw new Error(`Session '${id}' not found`);
     }
+
+    // Clear Chrome locks before starting
+    this.clearChromeLocks(id);
+
     this.emit('session:status', { sessionId: id, status: 'starting' });
     await client.start();
   }

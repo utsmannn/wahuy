@@ -3,6 +3,14 @@ FROM node:20-slim AS builder
 
 WORKDIR /app
 
+# Install build dependencies for native modules (better-sqlite3)
+RUN apt-get update && apt-get install -y \
+    python3 \
+    make \
+    g++ \
+    --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy package files
 COPY package*.json ./
 COPY dashboard/package*.json ./dashboard/
@@ -45,6 +53,9 @@ RUN apt-get update && apt-get install -y \
     libxrandr2 \
     wget \
     xdg-utils \
+    python3 \
+    make \
+    g++ \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
@@ -89,7 +100,11 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
 # Create writable directories for Chrome
 RUN mkdir -p /tmp/chrome-crashpad /app/.cache/puppeteer
 
+# Copy startup script
+COPY docker/start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
 # Run as root (required for Chrome sandbox in Docker)
 # Note: For production, consider using --cap-add=SYS_ADMIN instead
-# Start application
-CMD ["node", "dist/index.js"]
+# Start application with cleanup script
+CMD ["/app/start.sh"]

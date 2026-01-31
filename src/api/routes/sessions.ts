@@ -228,4 +228,74 @@ export async function sessionRoutes(server: FastifyInstance): Promise<void> {
       throw error;
     }
   });
+
+  // Get detailed session status with error info and reconnect state
+  server.get('/:sessionId/status', async (request, reply) => {
+    const { sessionId } = request.params as { sessionId: string };
+    const client = sessionManager.getSession(sessionId);
+
+    if (!client) {
+      reply.status(404);
+      return {
+        success: false,
+        error: {
+          code: 'SESSION_NOT_FOUND',
+          message: `Session '${sessionId}' not found`
+        }
+      };
+    }
+
+    const info = client.getInfo();
+    return {
+      success: true,
+      data: {
+        id: info.id,
+        name: info.name,
+        status: info.status,
+        phone: info.phone,
+        pushName: info.pushName,
+        isConnected: info.status === 'ready',
+        lastError: info.lastError ?? null,
+        reconnect: info.reconnect ?? {
+          enabled: true,
+          attempts: 0,
+          maxAttempts: 5,
+          nextAttemptAt: null,
+          lastAttemptAt: null
+        },
+        createdAt: info.createdAt,
+        lastActivity: info.lastActivity ?? null
+      }
+    };
+  });
+
+  // Enable/disable auto-reconnect for a session
+  server.post('/:sessionId/reconnect', async (request, reply) => {
+    const { sessionId } = request.params as { sessionId: string };
+    const body = request.body as { enabled?: boolean };
+    const client = sessionManager.getSession(sessionId);
+
+    if (!client) {
+      reply.status(404);
+      return {
+        success: false,
+        error: {
+          code: 'SESSION_NOT_FOUND',
+          message: `Session '${sessionId}' not found`
+        }
+      };
+    }
+
+    if (body.enabled !== undefined) {
+      client.setAutoReconnect(body.enabled);
+    }
+
+    return {
+      success: true,
+      data: {
+        id: sessionId,
+        autoReconnectEnabled: client.isAutoReconnectEnabled()
+      }
+    };
+  });
 }

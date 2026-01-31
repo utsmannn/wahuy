@@ -9,7 +9,12 @@ import pkg from 'whatsapp-web.js';
 const { Client, LocalAuth } = pkg;
 import { logger } from '../utils/logger.js';
 import { config } from '../config.js';
-import type { SessionState, SessionInfo } from '../types/session.js';
+import type { SessionState, SessionInfo, SessionError } from '../types/session.js';
+
+// Reconnect configuration
+const RECONNECT_MAX_ATTEMPTS = 5;
+const RECONNECT_BASE_DELAY = 5000; // 5 seconds
+const RECONNECT_MAX_DELAY = 300000; // 5 minutes
 
 export class WhatsAppClient extends EventEmitter {
   private client: InstanceType<typeof Client>;
@@ -22,6 +27,17 @@ export class WhatsAppClient extends EventEmitter {
   private createdAt: Date;
   private lastActivity: Date | null = null;
   private readyTimeout: NodeJS.Timeout | null = null;
+
+  // Error tracking
+  private lastError: SessionError | null = null;
+
+  // Reconnect state
+  private reconnectAttempts: number = 0;
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private nextReconnectAt: Date | null = null;
+  private lastReconnectAttempt: Date | null = null;
+  private autoReconnectEnabled: boolean = true;
+  private isDestroyed: boolean = false;
 
   constructor(id: string, name?: string) {
     super();
@@ -93,6 +109,11 @@ export class WhatsAppClient extends EventEmitter {
 
     this.client.on('auth_failure', (msg: string) => {
       this.status = 'failed';
+      this.lastError = {
+        code: 'AUTH_FAILURE',
+        message: msg,
+        timestamp: new Date().toISOString(),
+      };
       logger.error({ sessionId: this.id, msg }, 'Auth failed');
       this.emit('auth_failure', msg);
     });
@@ -120,17 +141,32 @@ export class WhatsAppClient extends EventEmitter {
         pushName: this.pushName
       }, 'Client ready');
 
+      // Reset reconnect state on successful connection
+      this.reconnectAttempts = 0;
+      this.nextReconnectAt = null;
+      this.lastError = null;
+
       this.emit('ready');
     });
 
     this.client.on('disconnected', (reason: string) => {
       this.status = 'disconnected';
+      this.lastError = {
+        code: 'DISCONNECTED',
+        message: reason,
+        timestamp: new Date().toISOString(),
+      };
       logger.warn({ sessionId: this.id, reason }, 'Disconnected');
       if (this.readyTimeout) {
         clearTimeout(this.readyTimeout);
         this.readyTimeout = null;
       }
       this.emit('disconnected', reason);
+
+      // Attempt auto-reconnect if enabled and not manually stopped
+      if (this.autoReconnectEnabled && !this.isDestroyed && this.shouldReconnect(reason)) {
+        this.scheduleReconnect();
+      }
     });
 
     this.client.on('change_state', (state: string) => {
@@ -181,6 +217,49 @@ export class WhatsAppClient extends EventEmitter {
   }
 
   private async formatMessage(msg: pkg.Message): Promise<object> {
+    // Get sender contact
+    let senderContact = null;
+    let receiverContact = null;
+
+    try {
+      const sender = await msg.getContact();
+      if (sender) {
+        senderContact = {
+          id: sender.id?._serialized || null,
+          number: sender.number || null,
+          name: sender.name || null,
+          pushname: sender.pushname || null,
+          shortName: sender.shortName || null,
+          isBusiness: sender.isBusiness || false,
+          isEnterprise: sender.isEnterprise || false,
+          isMe: sender.isMe || false,
+        };
+      }
+    } catch {
+      // Contact not available
+    }
+
+    try {
+      // Get receiver contact (the 'to' field)
+      if (msg.to) {
+        const receiver = await this.client.getContactById(msg.to);
+        if (receiver) {
+          receiverContact = {
+            id: receiver.id?._serialized || null,
+            number: receiver.number || null,
+            name: receiver.name || null,
+            pushname: receiver.pushname || null,
+            shortName: receiver.shortName || null,
+            isBusiness: receiver.isBusiness || false,
+            isEnterprise: receiver.isEnterprise || false,
+            isMe: receiver.isMe || false,
+          };
+        }
+      }
+    } catch {
+      // Contact not available
+    }
+
     const baseMessage = {
       id: msg.id._serialized,
       from: msg.from,
@@ -190,7 +269,11 @@ export class WhatsAppClient extends EventEmitter {
       timestamp: new Date(msg.timestamp * 1000).toISOString(),
       fromMe: msg.fromMe,
       hasMedia: msg.hasMedia,
-      isForwarded: msg.isForwarded
+      isForwarded: msg.isForwarded,
+      contacts: {
+        sender: senderContact,
+        receiver: receiverContact,
+      },
     };
 
     // Download media if present
@@ -240,6 +323,8 @@ export class WhatsAppClient extends EventEmitter {
    */
   async stop(): Promise<void> {
     this.status = 'stopped';
+    this.autoReconnectEnabled = false;
+    this.cancelReconnect();
     logger.info({ sessionId: this.id }, 'Stopping client...');
     await this.client.destroy();
   }
@@ -248,6 +333,9 @@ export class WhatsAppClient extends EventEmitter {
    * Destroy the client and clean up
    */
   async destroy(): Promise<void> {
+    this.isDestroyed = true;
+    this.autoReconnectEnabled = false;
+    this.cancelReconnect();
     if (this.readyTimeout) {
       clearTimeout(this.readyTimeout);
       this.readyTimeout = null;
@@ -258,6 +346,187 @@ export class WhatsAppClient extends EventEmitter {
       // Ignore errors during destroy
     }
     this.removeAllListeners();
+  }
+
+  /**
+   * Check if we should attempt reconnection based on disconnect reason
+   */
+  private shouldReconnect(reason: string): boolean {
+    // Don't reconnect if manually destroyed or stopped
+    if (this.isDestroyed) return false;
+
+    // Don't reconnect if max attempts reached
+    if (this.reconnectAttempts >= RECONNECT_MAX_ATTEMPTS) {
+      logger.warn({ sessionId: this.id, attempts: this.reconnectAttempts }, 'Max reconnect attempts reached');
+      return false;
+    }
+
+    // Don't reconnect for certain permanent failures
+    const permanentFailures = [
+      'LOGOUT',
+      'TOS_BLOCK',
+      'SMB_TOS_BLOCK',
+      'DEPRECATED',
+    ];
+
+    if (permanentFailures.some(f => reason.toUpperCase().includes(f))) {
+      logger.warn({ sessionId: this.id, reason }, 'Permanent failure - not reconnecting');
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Schedule a reconnection attempt with exponential backoff
+   */
+  private scheduleReconnect(): void {
+    this.cancelReconnect();
+
+    // Calculate delay with exponential backoff
+    const delay = Math.min(
+      RECONNECT_BASE_DELAY * Math.pow(2, this.reconnectAttempts),
+      RECONNECT_MAX_DELAY
+    );
+
+    this.nextReconnectAt = new Date(Date.now() + delay);
+    this.status = 'reconnecting';
+
+    logger.info({
+      sessionId: this.id,
+      attempt: this.reconnectAttempts + 1,
+      maxAttempts: RECONNECT_MAX_ATTEMPTS,
+      delayMs: delay,
+      nextAttemptAt: this.nextReconnectAt.toISOString()
+    }, 'Scheduling reconnect');
+
+    this.emit('status', 'reconnecting');
+    this.emit('reconnecting', {
+      attempt: this.reconnectAttempts + 1,
+      maxAttempts: RECONNECT_MAX_ATTEMPTS,
+      nextAttemptAt: this.nextReconnectAt.toISOString(),
+    });
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnect();
+    }, delay);
+  }
+
+  /**
+   * Cancel any pending reconnection
+   */
+  private cancelReconnect(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.nextReconnectAt = null;
+  }
+
+  /**
+   * Attempt to reconnect
+   */
+  private async reconnect(): Promise<void> {
+    if (this.isDestroyed || !this.autoReconnectEnabled) {
+      return;
+    }
+
+    this.reconnectAttempts++;
+    this.lastReconnectAttempt = new Date();
+    this.nextReconnectAt = null;
+
+    logger.info({
+      sessionId: this.id,
+      attempt: this.reconnectAttempts,
+      maxAttempts: RECONNECT_MAX_ATTEMPTS
+    }, 'Attempting reconnect');
+
+    try {
+      // Destroy old client instance
+      try {
+        await this.client.destroy();
+      } catch {
+        // Ignore destroy errors
+      }
+
+      // Create new client instance
+      this.client = new Client({
+        authStrategy: new LocalAuth({
+          clientId: this.id,
+          dataPath: config.storage.path + '/sessions'
+        }),
+        puppeteer: {
+          headless: true,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu',
+            '--disable-crashpad',
+            '--disable-crash-reporter',
+            '--single-process',
+            '--no-initial-navigation',
+            '--disable-blink-features=AutomationControlled',
+            '--disable-features=IsolateOrigins,site-per-process',
+            '--disable-site-isolation-trials'
+          ]
+        },
+        webVersionCache: {
+          type: 'remote',
+          remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1031592179-alpha.html',
+        },
+      });
+
+      // Re-attach event handlers
+      this.setupEventHandlers();
+
+      // Initialize
+      this.status = 'starting';
+      await this.client.initialize();
+
+    } catch (error) {
+      const err = error as Error;
+      logger.error({ sessionId: this.id, error: err.message }, 'Reconnect failed');
+
+      this.lastError = {
+        code: 'RECONNECT_FAILED',
+        message: err.message,
+        timestamp: new Date().toISOString(),
+      };
+
+      // Schedule another attempt if we haven't exceeded max
+      if (this.reconnectAttempts < RECONNECT_MAX_ATTEMPTS && this.autoReconnectEnabled) {
+        this.scheduleReconnect();
+      } else {
+        this.status = 'failed';
+        this.emit('status', 'failed');
+        this.emit('failed', {
+          reason: 'Max reconnect attempts exceeded',
+          lastError: this.lastError,
+        });
+      }
+    }
+  }
+
+  /**
+   * Enable or disable auto-reconnect
+   */
+  setAutoReconnect(enabled: boolean): void {
+    this.autoReconnectEnabled = enabled;
+    if (!enabled) {
+      this.cancelReconnect();
+    }
+    logger.info({ sessionId: this.id, enabled }, 'Auto-reconnect setting changed');
+  }
+
+  /**
+   * Get auto-reconnect status
+   */
+  isAutoReconnectEnabled(): boolean {
+    return this.autoReconnectEnabled;
   }
 
   /**
@@ -364,7 +633,15 @@ export class WhatsAppClient extends EventEmitter {
       phone: this.phone,
       pushName: this.pushName,
       createdAt: this.createdAt.toISOString(),
-      lastActivity: this.lastActivity?.toISOString() ?? null
+      lastActivity: this.lastActivity?.toISOString() ?? null,
+      lastError: this.lastError,
+      reconnect: {
+        enabled: this.autoReconnectEnabled,
+        attempts: this.reconnectAttempts,
+        maxAttempts: RECONNECT_MAX_ATTEMPTS,
+        nextAttemptAt: this.nextReconnectAt?.toISOString() ?? null,
+        lastAttemptAt: this.lastReconnectAttempt?.toISOString() ?? null,
+      },
     };
   }
 
@@ -384,8 +661,14 @@ export class WhatsAppClient extends EventEmitter {
 
   /**
    * Format phone number to chat ID
+   * Preserves JID suffix if already provided (@c.us, @lid, @g.us)
    */
   private formatChatId(phone: string): string {
+    // If already a valid JID (contains @), return as-is
+    if (phone.includes('@')) {
+      return phone;
+    }
+
     // Remove non-digits
     let cleaned = phone.replace(/\D/g, '');
 
@@ -395,5 +678,78 @@ export class WhatsAppClient extends EventEmitter {
     }
 
     return cleaned + '@c.us';
+  }
+
+  /**
+   * Send typing indicator
+   */
+  async sendTyping(to: string, duration: number = 3000): Promise<void> {
+    const chatId = this.formatChatId(to);
+    const chat = await this.client.getChatById(chatId);
+    await chat.sendStateTyping();
+
+    // Clear typing state after duration
+    if (duration > 0) {
+      setTimeout(async () => {
+        try {
+          await chat.clearState();
+        } catch {
+          // Ignore errors during clear state
+        }
+      }, Math.min(duration, 25000)); // Cap at 25 seconds (WhatsApp limit)
+    }
+  }
+
+  /**
+   * Send recording indicator (voice message typing)
+   */
+  async sendRecording(to: string, duration: number = 3000): Promise<void> {
+    const chatId = this.formatChatId(to);
+    const chat = await this.client.getChatById(chatId);
+    await chat.sendStateRecording();
+
+    if (duration > 0) {
+      setTimeout(async () => {
+        try {
+          await chat.clearState();
+        } catch {
+          // Ignore errors during clear state
+        }
+      }, Math.min(duration, 25000));
+    }
+  }
+
+  /**
+   * Clear chat state (stop typing/recording indicator)
+   */
+  async clearState(to: string): Promise<void> {
+    const chatId = this.formatChatId(to);
+    const chat = await this.client.getChatById(chatId);
+    await chat.clearState();
+  }
+
+  /**
+   * Mark chat as read (send seen/blue checkmark)
+   */
+  async markAsRead(to: string): Promise<void> {
+    const chatId = this.formatChatId(to);
+    const chat = await this.client.getChatById(chatId);
+    await chat.sendSeen();
+  }
+
+  /**
+   * Mark specific message as read by finding it in the chat
+   */
+  async markMessageAsRead(messageId: string): Promise<void> {
+    // The message ID contains the chat ID, extract it
+    // Format: true_6281234567890@c.us_3EB0...
+    const parts = messageId.split('_');
+    if (parts.length >= 2) {
+      const chatId = parts[1];
+      const chat = await this.client.getChatById(chatId);
+      await chat.sendSeen();
+    } else {
+      throw new Error('Invalid message ID format');
+    }
   }
 }

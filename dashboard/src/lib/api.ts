@@ -89,4 +89,50 @@ export const api = {
 
   // Health
   getHealth: () => request<import('../types').HealthResponse>('/health'),
+
+  // Message History
+  getMessageHistory: (params?: {
+    sessionId?: string;
+    from?: string;
+    to?: string;
+    type?: string;
+    fromMe?: boolean;
+    hasMedia?: boolean;
+    startDate?: string;
+    endDate?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.sessionId) searchParams.set('sessionId', params.sessionId);
+    if (params?.from) searchParams.set('from', params.from);
+    if (params?.to) searchParams.set('to', params.to);
+    if (params?.type) searchParams.set('type', params.type);
+    if (params?.fromMe !== undefined) searchParams.set('fromMe', String(params.fromMe));
+    if (params?.hasMedia !== undefined) searchParams.set('hasMedia', String(params.hasMedia));
+    if (params?.startDate) searchParams.set('startDate', params.startDate);
+    if (params?.endDate) searchParams.set('endDate', params.endDate);
+    if (params?.search) searchParams.set('search', params.search);
+    if (params?.limit) searchParams.set('limit', String(params.limit));
+    if (params?.offset) searchParams.set('offset', String(params.offset));
+    const queryString = searchParams.toString();
+    return request<{ success: boolean; data: { messages: import('../types').Message[]; count: number; total: number } }>(
+      `/sessions/messages/history${queryString ? `?${queryString}` : ''}`
+    );
+  },
+  getMessageStats: () =>
+    request<{ success: boolean; data: { total: number; bySession: Record<string, number>; byType: Record<string, number>; received: number; sent: number } }>(
+      '/sessions/messages/stats'
+    ),
+  clearMessageHistory: (sessionId?: string, olderThan?: string) => {
+    const searchParams = new URLSearchParams();
+    if (sessionId) searchParams.set('sessionId', sessionId);
+    if (olderThan) searchParams.set('olderThan', olderThan);
+    const queryString = searchParams.toString();
+    return request<{ success: boolean; data: { deleted: number } }>(
+      `/sessions/messages/history${queryString ? `?${queryString}` : ''}`,
+      { method: 'DELETE' }
+    );
+  },
 };

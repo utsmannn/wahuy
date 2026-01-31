@@ -55,7 +55,8 @@ function App() {
     ));
     if (status === 'ready' || status === 'disconnected') {
       setQrCodes(prev => {
-        const { [sessionId]: _, ...rest } = prev;
+        const { [sessionId]: _removed, ...rest } = prev;
+        void _removed;
         return rest;
       });
     }
@@ -106,13 +107,25 @@ function App() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [sessionsRes, webhooksRes, health] = await Promise.all([
+      const [sessionsRes, webhooksRes, health, messagesRes] = await Promise.all([
         api.getSessions(),
         api.getWebhooks(),
         api.getHealth(),
+        api.getMessageHistory({ limit: 100 }),
       ]);
       setSessions(sessionsRes.data);
       setWebhooks(webhooksRes.data);
+      // Load persisted messages
+      if (messagesRes.data?.messages) {
+        setMessages(messagesRes.data.messages.map(m => ({
+          ...m,
+          receivedAt: m.receivedAt || new Date().toISOString(),
+        })));
+        setServerStats(prev => ({
+          ...prev,
+          messages: messagesRes.data.total || messagesRes.data.messages.length,
+        }));
+      }
       const sessionsData = health.data?.sessions || health.sessions;
       if (sessionsData) {
         setServerStats(prev => ({
@@ -226,10 +239,16 @@ function App() {
     setShowSendMessage(true);
   };
 
-  const clearMessages = () => {
+  const clearMessages = async () => {
     if (confirm('Clear all message history?')) {
-      setMessages([]);
-      setServerStats(prev => ({ ...prev, messages: 0 }));
+      try {
+        await api.clearMessageHistory();
+        setMessages([]);
+        setServerStats(prev => ({ ...prev, messages: 0 }));
+      } catch (err) {
+        console.error('Failed to clear messages:', err);
+        alert('Failed to clear messages');
+      }
     }
   };
 

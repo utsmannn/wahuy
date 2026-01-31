@@ -10,8 +10,23 @@ export type SessionState =
   | 'connected'
   | 'ready'
   | 'disconnected'
+  | 'reconnecting'
   | 'stopped'
   | 'failed';
+
+export interface SessionError {
+  code: string;
+  message: string;
+  timestamp: string;
+}
+
+export interface ReconnectInfo {
+  enabled: boolean;
+  attempts: number;
+  maxAttempts: number;
+  nextAttemptAt: string | null;
+  lastAttemptAt: string | null;
+}
 
 export interface SessionInfo {
   id: string;
@@ -22,6 +37,8 @@ export interface SessionInfo {
   platform?: string;
   createdAt: string;
   lastActivity?: string | null;
+  lastError?: SessionError | null;
+  reconnect?: ReconnectInfo;
   statistics?: SessionStatistics;
 }
 
