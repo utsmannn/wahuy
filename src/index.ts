@@ -1,5 +1,5 @@
 /**
- * WASimple - WhatsApp Multi-Session Service
+ * Wahuy - WhatsApp Multi-Session Service
  *
  * Entry point for the application.
  *
@@ -16,7 +16,7 @@ let server: Awaited<ReturnType<typeof createServer>> | null = null;
 
 async function main(): Promise<void> {
   try {
-    logger.info('Starting WASimple...');
+    logger.info('Starting Wahuy...');
     logger.info({
       port: config.port,
       env: config.nodeEnv,
@@ -41,12 +41,12 @@ async function main(): Promise<void> {
       host: config.host
     });
 
-    logger.info(`WASimple is running on http://${config.host}:${config.port}`);
+    logger.info(`Wahuy is running on http://${config.host}:${config.port}`);
     logger.info(`Health check: http://${config.host}:${config.port}/api/health`);
     logger.info(`API Base: http://${config.host}:${config.port}/api`);
 
   } catch (error) {
-    logger.fatal(error, 'Failed to start WASimple');
+    logger.fatal(error, 'Failed to start Wahuy');
     process.exit(1);
   }
 }

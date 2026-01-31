@@ -42,5 +42,5 @@ fi
 rm -rf /tmp/chrome-* 2>/dev/null
 rm -rf /app/.cache/puppeteer/* 2>/dev/null
 
-echo "Starting WASimple..."
+echo "Starting Wahuy..."
 exec node dist/index.js

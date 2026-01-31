@@ -1,4 +1,4 @@
-# WASimple - WhatsApp Multi-Session Service
+# Wahuy - WhatsApp Multi-Session Service
 
 **Status:** Design Document
 **Version:** 1.0
@@ -9,7 +9,7 @@
 
 ## 1. Overview
 
-WASimple adalah service WhatsApp independen yang mendukung multiple sessions/nomor. Service ini menyediakan REST API, WebSocket untuk realtime events, dan dashboard sederhana untuk management.
+Wahuy adalah service WhatsApp independen yang mendukung multiple sessions/nomor. Service ini menyediakan REST API, WebSocket untuk realtime events, dan dashboard sederhana untuk management.
 
 ### Goals
 
@@ -32,7 +32,7 @@ WASimple adalah service WhatsApp independen yang mendukung multiple sessions/nom
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                              WASimple                                    │
+│                              Wahuy                                    │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
 │   ┌─────────────┐   ┌─────────────┐   ┌─────────────┐                   │
@@ -131,7 +131,7 @@ WASimple adalah service WhatsApp independen yang mendukung multiple sessions/nom
 ## 3. Directory Structure
 
 ```
-wasimple/
+wahuy/
 ├── .github/
 │   └── workflows/
 │       └── ci.yml                    # GitHub Actions CI
@@ -557,7 +557,7 @@ X-API-Key: {api_key}
     { "id": "btn2", "text": "Option 2" },
     { "id": "btn3", "text": "Option 3" }
   ],
-  "footer": "Powered by WASimple"              // Optional
+  "footer": "Powered by Wahuy"              // Optional
 }
 ```
 
@@ -1211,7 +1211,7 @@ Optional config file for complex configurations:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  WASimple Dashboard                                    [admin] [Logout]     │
+│  Wahuy Dashboard                                    [admin] [Logout]     │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
@@ -1442,9 +1442,9 @@ CMD ["node", "dist/index.js"]
 version: '3.8'
 
 services:
-  wasimple:
+  wahuy:
     build: .
-    container_name: wasimple
+    container_name: wahuy
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -1457,7 +1457,7 @@ services:
       - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-admin123}
       - LOG_LEVEL=info
     volumes:
-      - wasimple_data:/app/data
+      - wahuy_data:/app/data
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
       interval: 30s
@@ -1465,7 +1465,7 @@ services:
       retries: 3
 
 volumes:
-  wasimple_data:
+  wahuy_data:
 ```
 
 ---

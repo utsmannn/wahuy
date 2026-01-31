@@ -260,6 +260,28 @@ export class WhatsAppClient extends EventEmitter {
       // Contact not available
     }
 
+    // Get quoted message if exists
+    let quotedMessage = null;
+    if (msg.hasQuotedMsg) {
+      try {
+        const quoted = await msg.getQuotedMessage();
+        if (quoted) {
+          quotedMessage = {
+            id: quoted.id._serialized,
+            from: quoted.from,
+            to: quoted.to,
+            body: quoted.body,
+            type: quoted.type,
+            timestamp: new Date(quoted.timestamp * 1000).toISOString(),
+            fromMe: quoted.fromMe,
+            hasMedia: quoted.hasMedia,
+          };
+        }
+      } catch {
+        // Quoted message not available
+      }
+    }
+
     const baseMessage = {
       id: msg.id._serialized,
       from: msg.from,
@@ -270,6 +292,8 @@ export class WhatsAppClient extends EventEmitter {
       fromMe: msg.fromMe,
       hasMedia: msg.hasMedia,
       isForwarded: msg.isForwarded,
+      hasQuotedMsg: msg.hasQuotedMsg,
+      quotedMessage,
       contacts: {
         sender: senderContact,
         receiver: receiverContact,

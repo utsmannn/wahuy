@@ -208,6 +208,7 @@ function wireSessionEvents(): void {
       hasMedia: data.message.hasMedia || false,
       mediaType: data.message.mediaType,
       mediaPath: data.message.mediaPath,
+      quotedMessageId: data.message.quotedMessage?.id,
       receivedAt: new Date().toISOString(),
     };
     messageStorage.saveMessage(storedMessage, data.message);
@@ -236,6 +237,7 @@ function wireSessionEvents(): void {
       hasMedia: data.message.hasMedia || false,
       mediaType: data.message.mediaType,
       mediaPath: data.message.mediaPath,
+      quotedMessageId: data.message.quotedMessage?.id,
       receivedAt: new Date().toISOString(),
     };
     messageStorage.saveMessage(storedMessage, data.message);

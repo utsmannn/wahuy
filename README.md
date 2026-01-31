@@ -1,4 +1,4 @@
-# WASimple
+# Wahuy
 
 A self-hosted WhatsApp Multi-Session API service. Manage multiple WhatsApp numbers simultaneously through REST API and WebSocket interface.
 
@@ -40,12 +40,12 @@ A self-hosted WhatsApp Multi-Session API service. Manage multiple WhatsApp numbe
 ```bash
 # Clone and run
 git clone <repository-url>
-cd wasimple
+cd wahuy
 docker-compose up -d
 
 # Access dashboard
 open http://localhost:7834
-# Default API Key: wasimple-default-api-key-change-me
+# Default API Key: wahuy-default-api-key-change-me
 ```
 
 ### Option 2: Local Development
@@ -53,7 +53,7 @@ open http://localhost:7834
 ```bash
 # Clone and install
 git clone <repository-url>
-cd wasimple
+cd wahuy
 npm install
 
 # Configure
@@ -307,6 +307,82 @@ DELETE /api/sessions/:sessionId
 X-API-Key: your-api-key
 ```
 
+#### Get All Chats
+```http
+GET /api/sessions/:sessionId/chats
+X-API-Key: your-api-key
+```
+
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "chats": [
+      {
+        "id": "6281234567890@c.us",
+        "name": "John Doe",
+        "isGroup": false,
+        "isReadOnly": false,
+        "unreadCount": 2,
+        "timestamp": "2024-01-15T10:30:00.000Z",
+        "lastMessage": {
+          "body": "Hello!",
+          "timestamp": "2024-01-15T10:30:00.000Z",
+          "fromMe": false
+        }
+      },
+      {
+        "id": "123456789@g.us",
+        "name": "Family Group",
+        "isGroup": true,
+        "unreadCount": 5,
+        "timestamp": "2024-01-15T12:00:00.000Z"
+      }
+    ],
+    "count": 15
+  }
+}
+```
+
+#### Get Groups Only
+```http
+GET /api/sessions/:sessionId/groups
+X-API-Key: your-api-key
+```
+
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "groups": [
+      {
+        "id": "123456789@g.us",
+        "name": "Family Group",
+        "isReadOnly": false,
+        "unreadCount": 5,
+        "timestamp": "2024-01-15T12:00:00.000Z",
+        "participantCount": 12,
+        "participants": [
+          {
+            "id": "6281234567890@c.us",
+            "isAdmin": true,
+            "isSuperAdmin": false
+          }
+        ],
+        "lastMessage": {
+          "body": "Good morning!",
+          "timestamp": "2024-01-15T12:00:00.000Z",
+          "fromMe": false
+        }
+      }
+    ],
+    "count": 3
+  }
+}
+```
+
 ### Messages
 
 #### Understanding WhatsApp ID Formats
@@ -323,7 +399,7 @@ WhatsApp uses different ID formats for identifying users:
 
 #### Message Object Structure
 
-All received messages include a `contacts` field with resolved contact information:
+All received messages include a `contacts` field with resolved contact information and `quotedMessage` for reply messages:
 
 ```json
 {
@@ -336,6 +412,17 @@ All received messages include a `contacts` field with resolved contact informati
   "fromMe": false,
   "hasMedia": false,
   "isForwarded": false,
+  "hasQuotedMsg": true,
+  "quotedMessage": {
+    "id": "true_6287654321098@c.us_3EB0ABC...",
+    "from": "6287654321098@c.us",
+    "to": "6281234567890@lid",
+    "body": "Original message being replied to",
+    "type": "chat",
+    "timestamp": "2024-01-15T10:25:00.000Z",
+    "fromMe": true,
+    "hasMedia": false
+  },
   "contacts": {
     "sender": {
       "id": "6281234567890@lid",
@@ -361,6 +448,15 @@ All received messages include a `contacts` field with resolved contact informati
 }
 ```
 
+**Quoted Message Fields:**
+| Field | Description |
+|-------|-------------|
+| `hasQuotedMsg` | Boolean - whether this message is a reply to another message |
+| `quotedMessage` | Object containing the original message being replied to (null if not a reply) |
+| `quotedMessage.id` | ID of the original message |
+| `quotedMessage.from` | Sender of the original message |
+| `quotedMessage.body` | Content of the original message |
+
 **Contact Fields:**
 | Field | Description |
 |-------|-------------|
@@ -381,7 +477,7 @@ X-API-Key: your-api-key
 
 {
   "to": "6281234567890",
-  "text": "Hello from WASimple!"
+  "text": "Hello from Wahuy!"
 }
 ```
 
@@ -922,41 +1018,41 @@ Enter your API key on the login screen to access the dashboard.
 
 ### Using Pre-built Image from GHCR (Recommended)
 
-The easiest way to deploy WASimple is using the pre-built Docker image from GitHub Container Registry:
+The easiest way to deploy Wahuy is using the pre-built Docker image from GitHub Container Registry:
 
 ```bash
 # Pull and run the latest image
 docker run -d \
-  --name wasimple \
+  --name wahuy \
   -p 7834:7834 \
   -e API_KEY=your-secret-key \
   -e DASHBOARD_ENABLED=true \
-  -v wasimple_data:/app/data \
-  ghcr.io/kjafrih/wasimple:latest
+  -v wahuy_data:/app/data \
+  ghcr.io/kjafrih/wahuy:latest
 ```
 
 Or create a `docker-compose.yml`:
 
 ```yaml
 services:
-  wasimple:
-    image: ghcr.io/kjafrih/wasimple:latest
-    container_name: wasimple
+  wahuy:
+    image: ghcr.io/kjafrih/wahuy:latest
+    container_name: wahuy
     restart: unless-stopped
     ports:
       - "7834:7834"
     environment:
       - NODE_ENV=production
       - PORT=7834
-      - API_KEY=${API_KEY:-wasimple-default-api-key-change-me}
+      - API_KEY=${API_KEY:-wahuy-default-api-key-change-me}
       - DASHBOARD_ENABLED=true
       - LOG_LEVEL=info
       - STORAGE_PATH=/app/data
     volumes:
-      - wasimple_data:/app/data
+      - wahuy_data:/app/data
 
 volumes:
-  wasimple_data:
+  wahuy_data:
     driver: local
 ```
 
@@ -967,27 +1063,27 @@ docker-compose up -d
 
 ### Using Docker Compose (Build from Source)
 
-The included `docker-compose.yml` runs WASimple on port **7834**.
+The included `docker-compose.yml` runs Wahuy on port **7834**.
 
 ```yaml
 services:
-  wasimple:
+  wahuy:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    container_name: wasimple
+    container_name: wahuy
     restart: unless-stopped
     ports:
       - "7834:7834"
     environment:
       - NODE_ENV=production
       - PORT=7834
-      - API_KEY=${API_KEY:-wasimple-default-api-key-change-me}
+      - API_KEY=${API_KEY:-wahuy-default-api-key-change-me}
       - DASHBOARD_ENABLED=true
       - LOG_LEVEL=info
       - STORAGE_PATH=/app/data
     volumes:
-      - wasimple_data:/app/data
+      - wahuy_data:/app/data
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:7834/api/health"]
       interval: 30s
@@ -996,7 +1092,7 @@ services:
       start_period: 10s
 
 volumes:
-  wasimple_data:
+  wahuy_data:
     driver: local
 ```
 
@@ -1022,7 +1118,7 @@ Access:
 
 ### Data Persistence
 
-All data is stored in the Docker volume `wasimple_data`:
+All data is stored in the Docker volume `wahuy_data`:
 - `sessions.json` - Session configurations
 - `webhooks.json` - Webhook configurations
 - `messages.db` - SQLite database for message history
@@ -1032,16 +1128,16 @@ All data is stored in the Docker volume `wasimple_data`:
 
 ```bash
 # Build
-docker build -t wasimple -f docker/Dockerfile .
+docker build -t wahuy -f docker/Dockerfile .
 
 # Run
 docker run -d \
-  --name wasimple \
+  --name wahuy \
   -p 7834:7834 \
   -e API_KEY=your-secret-key \
   -e DASHBOARD_ENABLED=true \
-  -v wasimple_data:/app/data \
-  wasimple
+  -v wahuy_data:/app/data \
+  wahuy
 ```
 
 ## Troubleshooting
@@ -1067,7 +1163,7 @@ docker run -d \
 3. Check server logs:
    ```bash
    # Docker
-   docker-compose logs -f wasimple
+   docker-compose logs -f wahuy
 
    # Local development (logs output to terminal)
    npm run dev
@@ -1112,7 +1208,7 @@ If you see Chrome/Puppeteer errors in Docker:
    ```
 3. **Check Chrome is installed in container:**
    ```bash
-   docker exec wasimple which chromium
+   docker exec wahuy which chromium
    ```
 
 ### Outdated WhatsApp Web version
@@ -1142,7 +1238,7 @@ npm run format
 ## Project Structure
 
 ```
-wasimple/
+wahuy/
 ├── src/
 │   ├── api/           # REST API routes
 │   ├── core/          # Core business logic
@@ -1183,7 +1279,7 @@ MIT License - see [LICENSE](LICENSE) file
 
 ## Support
 
-- GitHub Issues: [Report bugs](https://github.com/yourusername/wasimple/issues)
+- GitHub Issues: [Report bugs](https://github.com/yourusername/wahuy/issues)
 
 ---
 

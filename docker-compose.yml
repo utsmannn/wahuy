@@ -1,25 +1,25 @@
 version: '3.8'
 
 services:
-  wasimple:
+  wahuy:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    container_name: wasimple
+    container_name: wahuy
     restart: unless-stopped
     ports:
       - "7834:7834"
     environment:
       - NODE_ENV=production
       - PORT=7834
-      - API_KEY=${API_KEY:-wasimple-default-api-key-change-me}
+      - API_KEY=${API_KEY:-wahuy-default-api-key-change-me}
       - DASHBOARD_ENABLED=true
       - DASHBOARD_USERNAME=${DASHBOARD_USERNAME:-admin}
       - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-admin123}
       - LOG_LEVEL=info
       - STORAGE_PATH=/app/data
     volumes:
-      - wasimple_data:/app/data
+      - wahuy_data:/app/data
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:7834/api/health"]
       interval: 30s
@@ -28,5 +28,5 @@ services:
       start_period: 10s
 
 volumes:
-  wasimple_data:
+  wahuy_data:
     driver: local

@@ -205,7 +205,7 @@ export class WebhookDispatcher extends EventEmitter {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'User-Agent': 'WASimple/1.0',
+          'User-Agent': 'Wahuy/1.0',
           'X-Webhook-Event': event.event,
           'X-Webhook-Timestamp': event.timestamp,
           ...(webhook.secret && {
@@ -326,7 +326,7 @@ export class WebhookDispatcher extends EventEmitter {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'User-Agent': 'WASimple/1.0',
+          'User-Agent': 'Wahuy/1.0',
           'X-Webhook-Event': 'test'
         },
         body: JSON.stringify(testEvent),
