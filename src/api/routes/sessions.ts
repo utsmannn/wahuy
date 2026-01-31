@@ -298,4 +298,102 @@ export async function sessionRoutes(server: FastifyInstance): Promise<void> {
       }
     };
   });
+
+  // Get all chats (personal + groups)
+  server.get('/:sessionId/chats', async (request, reply) => {
+    const { sessionId } = request.params as { sessionId: string };
+    const client = sessionManager.getSession(sessionId);
+
+    if (!client) {
+      reply.status(404);
+      return {
+        success: false,
+        error: {
+          code: 'SESSION_NOT_FOUND',
+          message: `Session '${sessionId}' not found`
+        }
+      };
+    }
+
+    if (client.getStatus() !== 'ready') {
+      reply.status(400);
+      return {
+        success: false,
+        error: {
+          code: 'SESSION_NOT_READY',
+          message: 'Session is not ready'
+        }
+      };
+    }
+
+    try {
+      const chats = await client.getChats();
+      return {
+        success: true,
+        data: {
+          chats,
+          count: chats.length
+        }
+      };
+    } catch (error) {
+      const err = error as Error;
+      reply.status(500);
+      return {
+        success: false,
+        error: {
+          code: 'CHATS_FETCH_FAILED',
+          message: err.message
+        }
+      };
+    }
+  });
+
+  // Get groups only
+  server.get('/:sessionId/groups', async (request, reply) => {
+    const { sessionId } = request.params as { sessionId: string };
+    const client = sessionManager.getSession(sessionId);
+
+    if (!client) {
+      reply.status(404);
+      return {
+        success: false,
+        error: {
+          code: 'SESSION_NOT_FOUND',
+          message: `Session '${sessionId}' not found`
+        }
+      };
+    }
+
+    if (client.getStatus() !== 'ready') {
+      reply.status(400);
+      return {
+        success: false,
+        error: {
+          code: 'SESSION_NOT_READY',
+          message: 'Session is not ready'
+        }
+      };
+    }
+
+    try {
+      const groups = await client.getGroups();
+      return {
+        success: true,
+        data: {
+          groups,
+          count: groups.length
+        }
+      };
+    } catch (error) {
+      const err = error as Error;
+      reply.status(500);
+      return {
+        success: false,
+        error: {
+          code: 'GROUPS_FETCH_FAILED',
+          message: err.message
+        }
+      };
+    }
+  });
 }

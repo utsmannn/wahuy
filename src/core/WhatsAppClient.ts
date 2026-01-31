@@ -623,6 +623,66 @@ export class WhatsAppClient extends EventEmitter {
   }
 
   /**
+   * Get all chats
+   */
+  async getChats(): Promise<object[]> {
+    const chats = await this.client.getChats();
+    return chats.map(chat => ({
+      id: chat.id._serialized,
+      name: chat.name,
+      isGroup: chat.isGroup,
+      isReadOnly: chat.isReadOnly,
+      unreadCount: chat.unreadCount,
+      timestamp: chat.timestamp ? new Date(chat.timestamp * 1000).toISOString() : null,
+      lastMessage: chat.lastMessage ? {
+        body: chat.lastMessage.body,
+        timestamp: chat.lastMessage.timestamp ? new Date(chat.lastMessage.timestamp * 1000).toISOString() : null,
+        fromMe: chat.lastMessage.fromMe,
+      } : null,
+    }));
+  }
+
+  /**
+   * Get groups only
+   */
+  async getGroups(): Promise<object[]> {
+    const chats = await this.client.getChats();
+    const groups = chats.filter(chat => chat.isGroup);
+
+    return Promise.all(groups.map(async (group) => {
+      let participants: object[] = [];
+      try {
+        // Type assertion for group chat
+        const groupChat = group as unknown as { participants?: Array<{ id: { _serialized: string }, isAdmin: boolean, isSuperAdmin: boolean }> };
+        if (groupChat.participants) {
+          participants = groupChat.participants.map(p => ({
+            id: p.id._serialized,
+            isAdmin: p.isAdmin,
+            isSuperAdmin: p.isSuperAdmin,
+          }));
+        }
+      } catch {
+        // Ignore errors getting participants
+      }
+
+      return {
+        id: group.id._serialized,
+        name: group.name,
+        isReadOnly: group.isReadOnly,
+        unreadCount: group.unreadCount,
+        timestamp: group.timestamp ? new Date(group.timestamp * 1000).toISOString() : null,
+        participantCount: participants.length,
+        participants,
+        lastMessage: group.lastMessage ? {
+          body: group.lastMessage.body,
+          timestamp: group.lastMessage.timestamp ? new Date(group.lastMessage.timestamp * 1000).toISOString() : null,
+          fromMe: group.lastMessage.fromMe,
+        } : null,
+      };
+    }));
+  }
+
+  /**
    * Get session info
    */
   getInfo(): SessionInfo {
