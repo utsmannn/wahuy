@@ -87,6 +87,39 @@ export const config = {
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
     headless: getEnvBoolean('PUPPETEER_HEADLESS', true),
     args: getEnvArray('PUPPETEER_ARGS', ['--no-sandbox', '--disable-setuid-sandbox'])
+  },
+
+  // Provider Selection
+  provider: getEnv('PROVIDER', 'internal') as 'internal' | 'official',
+
+  // Official WhatsApp Business API Configuration
+  official: (() => {
+    if (getEnv('PROVIDER', 'internal') !== 'official') {
+      return undefined;
+    }
+    return {
+      baseUrl: getEnv('OFFICIAL_BASE_URL', 'https://graph.facebook.com/v20.0'),
+      accessToken: getEnv('OFFICIAL_ACCESS_TOKEN', ''),
+      appSecret: getEnv('OFFICIAL_APP_SECRET', ''),
+      phoneNumberId: getEnv('OFFICIAL_PHONE_NUMBER_ID', ''),
+      businessAccountId: process.env.OFFICIAL_BUSINESS_ACCOUNT_ID,
+      webhookVerifyToken: getEnv('OFFICIAL_WEBHOOK_VERIFY_TOKEN', ''),
+      webhookPath: getEnv('OFFICIAL_WEBHOOK_PATH', '/webhooks/whatsapp'),
+      autoDownloadMedia: getEnvBoolean('OFFICIAL_AUTO_DOWNLOAD_MEDIA', true),
+      mediaCacheTtl: getEnvNumber('OFFICIAL_MEDIA_CACHE_TTL', 300),
+      maxMediaSize: getEnvNumber('OFFICIAL_MAX_MEDIA_SIZE', 100 * 1024 * 1024), // 100MB
+      rateLimit: {
+        messagesPerSecond: getEnvNumber('OFFICIAL_RATE_LIMIT_MSG_PER_SEC', 80),
+        queueEnabled: getEnvBoolean('OFFICIAL_QUEUE_ENABLED', true),
+        queueMaxSize: getEnvNumber('OFFICIAL_QUEUE_MAX_SIZE', 10000),
+        queueProvider: getEnv('OFFICIAL_QUEUE_PROVIDER', 'memory') as 'memory' | 'redis'
+      }
+    };
+  })(),
+
+  // Redis (for official provider queue)
+  redis: {
+    url: process.env.REDIS_URL
   }
 } as const;
 

@@ -1028,7 +1028,7 @@ docker run -d \
   -e API_KEY=your-secret-key \
   -e DASHBOARD_ENABLED=true \
   -v wahuy_data:/app/data \
-  ghcr.io/kjafrih/wahuy:latest
+  ghcr.io/utsmannn/wahuy:latest
 ```
 
 Or create a `docker-compose.yml`:
@@ -1036,7 +1036,7 @@ Or create a `docker-compose.yml`:
 ```yaml
 services:
   wahuy:
-    image: ghcr.io/kjafrih/wahuy:latest
+    image: ghcr.io/utsmannn/wahuy:latest
     container_name: wahuy
     restart: unless-stopped
     ports:
@@ -1279,7 +1279,7 @@ MIT License - see [LICENSE](LICENSE) file
 
 ## Support
 
-- GitHub Issues: [Report bugs](https://github.com/yourusername/wahuy/issues)
+- GitHub Issues: [Report bugs](https://github.com/utsmannn/wahuy/issues)
 
 ---
 

@@ -11,6 +11,7 @@ import { createServer } from './server.js';
 import { logger } from './utils/logger.js';
 import { sessionManager } from './core/SessionManager.js';
 import { webhookDispatcher } from './core/WebhookDispatcher.js';
+import { createProvider, shutdownProvider, isInternalProvider, isOfficialProvider } from './providers/index.js';
 
 let server: Awaited<ReturnType<typeof createServer>> | null = null;
 
@@ -20,12 +21,25 @@ async function main(): Promise<void> {
     logger.info({
       port: config.port,
       env: config.nodeEnv,
-      dashboard: config.dashboard.enabled
+      dashboard: config.dashboard.enabled,
+      provider: config.provider
     }, 'Configuration loaded');
 
-    // Initialize core modules
-    await sessionManager.initialize();
-    await webhookDispatcher.initialize();
+    // Initialize provider (for Official API mode)
+    const provider = await createProvider();
+    logger.info({ provider: provider.name, version: provider.version }, 'Provider ready');
+
+    // Initialize core modules (only for internal provider)
+    if (isInternalProvider()) {
+      await sessionManager.initialize();
+      await webhookDispatcher.initialize();
+
+      // Wire session events to webhook dispatcher
+      wireEventsToWebhooks();
+
+      // Auto-start existing sessions
+      await autoStartSessions();
+    }
 
     // Wire session events to webhook dispatcher
     wireEventsToWebhooks();
@@ -44,6 +58,11 @@ async function main(): Promise<void> {
     logger.info(`Wahuy is running on http://${config.host}:${config.port}`);
     logger.info(`Health check: http://${config.host}:${config.port}/api/health`);
     logger.info(`API Base: http://${config.host}:${config.port}/api`);
+    logger.info(`Official API: http://${config.host}:${config.port}/v1/messages`);
+
+    if (isOfficialProvider()) {
+      logger.info('Webhook endpoint: POST /webhooks/whatsapp');
+    }
 
   } catch (error) {
     logger.fatal(error, 'Failed to start Wahuy');
@@ -157,9 +176,15 @@ async function shutdown(signal: string): Promise<void> {
       logger.info('Server closed');
     }
 
-    // Shutdown all sessions
-    await sessionManager.shutdown();
-    logger.info('Sessions shutdown complete');
+    // Shutdown provider
+    await shutdownProvider();
+    logger.info('Provider shutdown complete');
+
+    // Shutdown all sessions (internal mode only)
+    if (isInternalProvider()) {
+      await sessionManager.shutdown();
+      logger.info('Sessions shutdown complete');
+    }
 
     logger.info('Graceful shutdown complete');
     process.exit(0);
