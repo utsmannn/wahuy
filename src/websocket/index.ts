@@ -10,6 +10,7 @@ import { logger } from '../utils/logger.js';
 import { sessionManager } from '../core/SessionManager.js';
 import { messageStorage, StoredMessage } from '../storage/MessageStorage.js';
 import type { SubscribePayload, UnsubscribePayload } from './types.js';
+import type { IWhatsAppProvider, WahuyMessage } from '../providers/types.js';
 
 let io: Server | null = null;
 
@@ -272,4 +273,96 @@ export function broadcast(event: string, data: unknown): void {
  */
 export function emitToSession(sessionId: string, event: string, data: unknown): void {
   io?.to(`session:${sessionId}`).emit(event, data);
+}
+
+/**
+ * Wire Official Provider events to Socket.io and MessageStorage
+ */
+export function wireProviderEvents(provider: IWhatsAppProvider): void {
+  if (!io) {
+    logger.warn('WebSocket not initialized, skipping provider event wiring');
+    return;
+  }
+
+  const officialProvider = provider as import('../providers/official/OfficialProvider.js').OfficialProvider;
+
+  // Handle incoming messages from Official Provider
+  officialProvider.on('message:received', (data: { sessionId: string; message: WahuyMessage }) => {
+    // Save to persistent storage
+    const storedMessage: StoredMessage = {
+      id: data.message.id,
+      sessionId: data.sessionId,
+      from: data.message.from,
+      to: data.message.to || '',
+      body: data.message.body || '',
+      type: data.message.type || 'chat',
+      timestamp: data.message.timestamp,
+      fromMe: false,
+      hasMedia: data.message.hasMedia || false,
+      mediaType: data.message.media?.mimeType,
+      quotedMessageId: data.message.quotedMessage?.id,
+      receivedAt: new Date().toISOString(),
+      contacts: data.message.contacts,
+    };
+    messageStorage.saveMessage(storedMessage, data.message);
+
+    // Broadcast to WebSocket clients
+    io?.to(`session:${data.sessionId}`).emit('message:received', {
+      sessionId: data.sessionId,
+      message: data.message
+    });
+    io?.to('session:*').emit('message:received', {
+      sessionId: data.sessionId,
+      message: data.message
+    });
+  });
+
+  // Handle sent messages from Official Provider
+  officialProvider.on('message:sent', (data: { sessionId: string; message: WahuyMessage }) => {
+    // Save to persistent storage
+    const storedMessage: StoredMessage = {
+      id: data.message.id,
+      sessionId: data.sessionId,
+      from: data.message.from || '',
+      to: data.message.to,
+      body: data.message.body || '',
+      type: data.message.type || 'chat',
+      timestamp: data.message.timestamp,
+      fromMe: true,
+      hasMedia: data.message.hasMedia || false,
+      mediaType: data.message.media?.mimeType,
+      quotedMessageId: data.message.quotedMessage?.id,
+      receivedAt: new Date().toISOString(),
+      contacts: data.message.contacts,
+    };
+    messageStorage.saveMessage(storedMessage, data.message);
+
+    // Broadcast to WebSocket clients
+    io?.to(`session:${data.sessionId}`).emit('message:sent', {
+      sessionId: data.sessionId,
+      message: data.message
+    });
+    io?.to('session:*').emit('message:sent', {
+      sessionId: data.sessionId,
+      message: data.message
+    });
+  });
+
+  // Handle message status updates (ack)
+  officialProvider.on('message:ack', (data: { sessionId: string; id: string; ack: number; ackName: string }) => {
+    io?.to(`session:${data.sessionId}`).emit('message:ack', {
+      sessionId: data.sessionId,
+      id: data.id,
+      ack: data.ack,
+      ackName: data.ackName
+    });
+    io?.to('session:*').emit('message:ack', {
+      sessionId: data.sessionId,
+      id: data.id,
+      ack: data.ack,
+      ackName: data.ackName
+    });
+  });
+
+  logger.info('Official Provider events wired to WebSocket and MessageStorage');
 }

@@ -87,6 +87,27 @@ export const api = {
       body: JSON.stringify({ to, latitude, longitude, description }),
     }),
 
+  // Provider
+  getProviderInfo: () =>
+    request<{ success: boolean; data: import('../types').ProviderInfo }>('/provider'),
+  switchProvider: (data: { mode: 'internal' | 'official'; official?: import('../types').OfficialConfig }) =>
+    request<{ success: boolean; data: import('../types').ProviderInfo }>('/provider/switch', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  testProvider: (data: import('../types').OfficialConfig) =>
+    request<{ success: boolean; data: { message: string; profile: unknown } }>('/provider/test', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getTemplates: () =>
+    request<{ success: boolean; data: import('../types').WhatsAppTemplate[] }>('/provider/templates'),
+  sendTemplate: (data: { to: string; templateName: string; languageCode: string; variables?: string[] }) =>
+    request<{ success: boolean; data: unknown }>('/provider/send-template', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
   // Health
   getHealth: () => request<import('../types').HealthResponse>('/health'),
 
@@ -135,4 +156,35 @@ export const api = {
       { method: 'DELETE' }
     );
   },
+
+  // Webhook Logs
+  getWebhookLogs: (params?: {
+    source?: 'meta' | 'internal';
+    event?: string;
+    limit?: number;
+    offset?: number;
+    startDate?: string;
+    endDate?: string;
+  }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.source) searchParams.set('source', params.source);
+    if (params?.event) searchParams.set('event', params.event);
+    if (params?.limit) searchParams.set('limit', String(params.limit));
+    if (params?.offset) searchParams.set('offset', String(params.offset));
+    if (params?.startDate) searchParams.set('startDate', params.startDate);
+    if (params?.endDate) searchParams.set('endDate', params.endDate);
+    const queryString = searchParams.toString();
+    return request<{ success: boolean; data: { logs: import('../types').WebhookLog[]; count: number; total: number } }>(
+      `/webhooks/logs${queryString ? `?${queryString}` : ''}`
+    );
+  },
+  getWebhookLogStats: () =>
+    request<{ success: boolean; data: import('../types').WebhookLogStats }>(
+      '/webhooks/logs/stats'
+    ),
+  clearWebhookLogs: () =>
+    request<{ success: boolean; data: { deleted: number } }>(
+      '/webhooks/logs',
+      { method: 'DELETE' }
+    ),
 };

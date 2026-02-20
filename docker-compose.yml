@@ -8,11 +8,27 @@ services:
     container_name: wahuy
     restart: unless-stopped
     ports:
-      - "7834:7834"
+      - "7835:7834"
     environment:
+      # Mode: 'internal' (Web.js) atau 'official' (Meta API)
+      - PROVIDER=${PROVIDER:-internal}
+
+      # === MODE INTERNAL (Web.js) ===
+      - API_KEY=${API_KEY:-wahuy-default-api-key-change-me}
+
+      # === MODE OFFICIAL (Meta API) ===
+      # Uncomment dan isi jika pakai official provider
+      # - OFFICIAL_BASE_URL=https://graph.facebook.com/v20.0
+      # - OFFICIAL_ACCESS_TOKEN=${OFFICIAL_ACCESS_TOKEN}
+      # - OFFICIAL_PHONE_NUMBER_ID=${OFFICIAL_PHONE_NUMBER_ID}
+      # - OFFICIAL_APP_SECRET=${OFFICIAL_APP_SECRET}
+      # - OFFICIAL_WEBHOOK_VERIFY_TOKEN=${OFFICIAL_WEBHOOK_VERIFY_TOKEN}
+      # - OFFICIAL_QUEUE_PROVIDER=redis
+      # - REDIS_URL=redis://redis:6379
+
+      # Common settings
       - NODE_ENV=production
       - PORT=7834
-      - API_KEY=${API_KEY:-wahuy-default-api-key-change-me}
       - DASHBOARD_ENABLED=true
       - DASHBOARD_USERNAME=${DASHBOARD_USERNAME:-admin}
       - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-admin123}
@@ -26,7 +42,20 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    depends_on:
+      - redis
+
+  # Redis untuk queue (recommended untuk official mode)
+  redis:
+    image: redis:7-alpine
+    container_name: wahuy-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
 
 volumes:
   wahuy_data:
+    driver: local
+  redis_data:
     driver: local

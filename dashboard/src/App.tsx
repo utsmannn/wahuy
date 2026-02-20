@@ -22,9 +22,10 @@ import { WebhookForm } from './components/WebhookForm';
 import { WebhookMonitor } from './components/WebhookMonitor';
 import { MessageViewer } from './components/MessageViewer';
 import { SendMessageModal } from './components/SendMessageModal';
+import { ProviderSetup } from './components/ProviderSetup';
 import { useWebSocket } from './hooks/useWebSocket';
 import { api } from './lib/api';
-import type { Session, Webhook as WebhookType, Message } from './types';
+import type { Session, Webhook as WebhookType, Message, ProviderInfo } from './types';
 
 type Tab = 'sessions' | 'messages' | 'webhooks' | 'settings';
 
@@ -44,6 +45,7 @@ function App() {
   const [editingWebhook, setEditingWebhook] = useState<WebhookType | undefined>();
   const [loading, setLoading] = useState(false);
   const [serverStats, setServerStats] = useState({ total: 0, connected: 0, messages: 0 });
+  const [providerInfo, setProviderInfo] = useState<ProviderInfo | null>(null);
 
   const handleQR = useCallback((sessionId: string, qr: string) => {
     setQrCodes(prev => ({ ...prev, [sessionId]: qr }));
@@ -107,11 +109,12 @@ function App() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [sessionsRes, webhooksRes, health, messagesRes] = await Promise.all([
+      const [sessionsRes, webhooksRes, health, messagesRes, providerRes] = await Promise.all([
         api.getSessions(),
         api.getWebhooks(),
         api.getHealth(),
         api.getMessageHistory({ limit: 100 }),
+        api.getProviderInfo().catch(() => null),
       ]);
       setSessions(sessionsRes.data);
       setWebhooks(webhooksRes.data);
@@ -125,6 +128,9 @@ function App() {
           ...prev,
           messages: messagesRes.data.total || messagesRes.data.messages.length,
         }));
+      }
+      if (providerRes?.data) {
+        setProviderInfo(providerRes.data);
       }
       const sessionsData = health.data?.sessions || health.sessions;
       if (sessionsData) {
@@ -255,6 +261,8 @@ function App() {
   if (!apiKey) {
     return <Login onLogin={handleLogin} />;
   }
+
+  const isOfficialMode = providerInfo?.mode === 'official';
 
   const navItems = [
     { id: 'sessions' as Tab, label: 'Sessions', icon: Smartphone },
@@ -425,11 +433,24 @@ function App() {
           )}
 
           {activeTab === 'messages' && (
-            <MessageViewer
-              messages={messages}
-              onClear={clearMessages}
-              sessions={sessions}
-            />
+            <div className="space-y-4">
+              {isOfficialMode && (
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => { setSelectedSession(''); setShowSendMessage(true); }}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                  >
+                    <MessageSquare size={18} />
+                    Send Message
+                  </button>
+                </div>
+              )}
+              <MessageViewer
+                messages={messages}
+                onClear={clearMessages}
+                sessions={sessions}
+              />
+            </div>
           )}
 
           {activeTab === 'webhooks' && (
@@ -541,6 +562,8 @@ const isValid = verifyWebhook(req.body, signature, WEBHOOK_SECRET);`}
 
           {activeTab === 'settings' && (
             <div className="max-w-2xl space-y-6">
+              <ProviderSetup providerInfo={providerInfo} onSwitch={loadData} />
+
               <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
                 <h3 className="text-lg font-medium text-gray-800 mb-4">API Configuration</h3>
                 <div className="space-y-4">
@@ -631,6 +654,7 @@ const isValid = verifyWebhook(req.body, signature, WEBHOOK_SECRET);`}
         onClose={() => setShowSendMessage(false)}
         sessionId={selectedSession}
         sessions={sessions}
+        providerInfo={providerInfo}
       />
     </div>
   );

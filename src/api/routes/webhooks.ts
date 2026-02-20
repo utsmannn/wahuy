@@ -5,6 +5,7 @@
 import { FastifyInstance } from 'fastify';
 import { nanoid } from 'nanoid';
 import { webhookDispatcher } from '../../core/WebhookDispatcher.js';
+import { webhookLogStorage } from '../../storage/WebhookLogStorage.js';
 
 export async function webhookRoutes(server: FastifyInstance): Promise<void> {
   // List webhooks
@@ -154,5 +155,70 @@ export async function webhookRoutes(server: FastifyInstance): Promise<void> {
       }
       throw error;
     }
+  });
+
+  // ============================================================================
+  // Webhook Logs
+  // ============================================================================
+
+  // Get webhook logs
+  server.get('/logs', async (request) => {
+    const query = request.query as {
+      source?: 'meta' | 'internal';
+      event?: string;
+      limit?: string;
+      offset?: string;
+      startDate?: string;
+      endDate?: string;
+    };
+
+    const logs = webhookLogStorage.getLogs({
+      source: query.source,
+      event: query.event,
+      limit: query.limit ? parseInt(query.limit, 10) : 100,
+      offset: query.offset ? parseInt(query.offset, 10) : 0,
+      startDate: query.startDate,
+      endDate: query.endDate,
+    });
+
+    const count = webhookLogStorage.getCount({
+      source: query.source,
+      event: query.event,
+    });
+
+    return {
+      success: true,
+      data: {
+        logs,
+        count: logs.length,
+        total: count,
+      }
+    };
+  });
+
+  // Get webhook log statistics
+  server.get('/logs/stats', async () => {
+    const total = webhookLogStorage.getCount();
+    const summary = webhookLogStorage.getEventSummary();
+
+    return {
+      success: true,
+      data: {
+        total,
+        byEvent: summary,
+      }
+    };
+  });
+
+  // Clear webhook logs
+  server.delete('/logs', async () => {
+    const deleted = webhookLogStorage.clearAll();
+    return {
+      success: true,
+      data: {
+        deleted,
+        message: `Deleted ${deleted} webhook logs`
+      }
+    };
   });
 }

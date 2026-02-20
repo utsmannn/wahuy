@@ -26,7 +26,7 @@ export async function createServer(): Promise<FastifyInstance> {
 
   // Security middleware
   await server.register(helmet, {
-    contentSecurityPolicy: config.nodeEnv === 'production'
+    contentSecurityPolicy: false
   });
 
   // CORS

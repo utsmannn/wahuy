@@ -160,7 +160,7 @@ export interface OfficialIncomingMessage {
   id: string;
   from: string;
   timestamp: string;
-  type: 'text' | 'image' | 'video' | 'document' | 'audio' | 'sticker' | 'location' | 'contacts' | 'interactive' | 'button' | 'order' | 'system' | 'unknown';
+  type: 'text' | 'image' | 'video' | 'document' | 'audio' | 'sticker' | 'location' | 'contacts' | 'interactive' | 'button' | 'order' | 'system' | 'reaction' | 'unknown';
   // Text message
   text?: {
     body: string;
@@ -340,6 +340,47 @@ export interface BusinessProfile {
 }
 
 // ============================================================================
+// Group Types (Official Cloud API v19.0+)
+// ============================================================================
+
+export interface CreateGroupRequest {
+  messaging_product: 'whatsapp';
+  subject: string;
+  participants?: string[];
+  description?: string;
+}
+
+export interface GroupInfo {
+  id: string;
+  subject: string;
+  description?: string;
+  owner?: string;
+  creation_timestamp?: string;
+  participants?: GroupParticipant[];
+}
+
+export interface GroupParticipant {
+  phone_number: string;
+  admin?: boolean;
+}
+
+export interface ManageParticipantsRequest {
+  messaging_product: 'whatsapp';
+  participants: string[];
+  action: 'add' | 'remove' | 'promote' | 'demote';
+}
+
+export interface ParticipantResult {
+  phone_number: string;
+  status: 'success' | 'failed';
+  message?: string;
+}
+
+export interface GroupInviteLink {
+  link: string;
+}
+
+// ============================================================================
 // Provider Interface
 // ============================================================================
 
@@ -366,6 +407,15 @@ export interface IWhatsAppProvider {
   // Session Operations
   getStatus(): ProviderStatus;
   getBusinessProfile?(): Promise<BusinessProfile>;
+
+  // Group Operations (Cloud API v19.0+)
+  createGroup?(subject: string, participants?: string[], description?: string): Promise<{ id: string }>;
+  getGroups?(): Promise<GroupInfo[]>;
+  getGroupInfo?(groupId: string): Promise<GroupInfo>;
+  updateGroup?(groupId: string, updates: { subject?: string; description?: string }): Promise<void>;
+  deleteGroup?(groupId: string): Promise<void>;
+  manageGroupParticipants?(groupId: string, participants: string[], action: 'add' | 'remove' | 'promote' | 'demote'): Promise<ParticipantResult[]>;
+  getGroupInviteLink?(groupId: string): Promise<GroupInviteLink>;
 
   // Lifecycle
   initialize?(): Promise<void>;

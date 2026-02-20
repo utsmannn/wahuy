@@ -7,6 +7,7 @@
 
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { getProvider } from '../../../providers/index.js';
+import { logger } from '../../../utils/logger.js';
 import type { SendMessageRequest } from '../../../providers/types.js';
 
 // Extend FastifyRequest to include auth
@@ -84,6 +85,3 @@ export async function officialMessagesRoutes(server: FastifyInstance): Promise<v
     }
   });
 }
-
-// Need to import logger
-import { logger } from '../../../utils/logger.js';

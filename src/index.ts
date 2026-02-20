@@ -11,41 +11,47 @@ import { createServer } from './server.js';
 import { logger } from './utils/logger.js';
 import { sessionManager } from './core/SessionManager.js';
 import { webhookDispatcher } from './core/WebhookDispatcher.js';
-import { createProvider, shutdownProvider, isInternalProvider, isOfficialProvider } from './providers/index.js';
+import { createProvider, shutdownProvider, isInternalProvider, isOfficialProvider, loadSavedConfig } from './providers/index.js';
+import { wireProviderEvents } from './websocket/index.js';
 
 let server: Awaited<ReturnType<typeof createServer>> | null = null;
 
 async function main(): Promise<void> {
   try {
     logger.info('Starting Wahuy...');
+    // Load saved provider config (from previous runtime switch)
+    const hasSavedConfig = loadSavedConfig();
+
     logger.info({
       port: config.port,
       env: config.nodeEnv,
       dashboard: config.dashboard.enabled,
-      provider: config.provider
+      provider: config.provider,
+      savedConfig: hasSavedConfig
     }, 'Configuration loaded');
 
-    // Initialize provider (for Official API mode)
+    // Initialize provider
     const provider = await createProvider();
     logger.info({ provider: provider.name, version: provider.version }, 'Provider ready');
+
+    // Initialize webhook dispatcher (for both providers)
+    await webhookDispatcher.initialize();
 
     // Initialize core modules (only for internal provider)
     if (isInternalProvider()) {
       await sessionManager.initialize();
-      await webhookDispatcher.initialize();
 
       // Wire session events to webhook dispatcher
-      wireEventsToWebhooks();
+      wireSessionEventsToWebhooks();
 
       // Auto-start existing sessions
       await autoStartSessions();
     }
 
-    // Wire session events to webhook dispatcher
-    wireEventsToWebhooks();
-
-    // Auto-start existing sessions
-    await autoStartSessions();
+    // Wire provider events to webhook dispatcher (for official provider)
+    if (isOfficialProvider()) {
+      wireProviderEventsToWebhooks(provider);
+    }
 
     // Create and start server
     server = await createServer();
@@ -61,7 +67,7 @@ async function main(): Promise<void> {
     logger.info(`Official API: http://${config.host}:${config.port}/v1/messages`);
 
     if (isOfficialProvider()) {
-      logger.info('Webhook endpoint: POST /webhooks/whatsapp');
+      logger.info(`Webhook endpoint: POST http://${config.host}:${config.port}/webhooks/whatsapp`);
     }
 
   } catch (error) {
@@ -71,9 +77,14 @@ async function main(): Promise<void> {
 }
 
 /**
- * Auto-start all sessions from storage
+ * Auto-start all sessions from storage (Internal Provider only)
  */
 async function autoStartSessions(): Promise<void> {
+  // Only auto-start for internal provider
+  if (!isInternalProvider()) {
+    return;
+  }
+
   const sessions = sessionManager.listSessions();
   logger.info({ count: sessions.length }, 'Auto-starting sessions');
 
@@ -97,9 +108,9 @@ async function autoStartSessions(): Promise<void> {
 }
 
 /**
- * Wire SessionManager events to WebhookDispatcher
+ * Wire SessionManager events to WebhookDispatcher (Internal Provider)
  */
-function wireEventsToWebhooks(): void {
+function wireSessionEventsToWebhooks(): void {
   sessionManager.on('session:qr', (data) => {
     webhookDispatcher.dispatch('session.qr_updated', data.sessionId, {
       qr: data.qr
@@ -160,7 +171,37 @@ function wireEventsToWebhooks(): void {
     });
   });
 
-  logger.info('Event wiring completed');
+  logger.info('Session event wiring completed');
+}
+
+/**
+ * Wire OfficialProvider events to WebhookDispatcher (Official Provider)
+ */
+function wireProviderEventsToWebhooks(provider: import('./providers/types.js').IWhatsAppProvider): void {
+  // Cast to OfficialProvider to access EventEmitter methods
+  const officialProvider = provider as import('./providers/official/OfficialProvider.js').OfficialProvider;
+
+  // Wire to WebhookDispatcher for external webhooks
+  officialProvider.on('message:received', (data: { sessionId: string; message: object }) => {
+    webhookDispatcher.dispatch('message.received', data.sessionId, data.message);
+  });
+
+  officialProvider.on('message:sent', (data: { sessionId: string; message: object }) => {
+    webhookDispatcher.dispatch('message.sent', data.sessionId, data.message);
+  });
+
+  officialProvider.on('message:ack', (data: { sessionId: string; id: string; ack: number; ackName: string }) => {
+    webhookDispatcher.dispatch('message.ack', data.sessionId, {
+      id: data.id,
+      ack: data.ack,
+      ackName: data.ackName
+    });
+  });
+
+  // Wire to WebSocket and MessageStorage for persistence
+  wireProviderEvents(provider);
+
+  logger.info('Provider event wiring completed');
 }
 
 /**

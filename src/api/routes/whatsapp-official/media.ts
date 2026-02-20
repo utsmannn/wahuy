@@ -2,13 +2,22 @@
  * Official API - Media Routes
  *
  * GET /v1/media/:mediaId - Download media (STREAMING)
+ * POST /v1/media - Upload media
  */
 
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import multipart from '@fastify/multipart';
 import { getProvider } from '../../../providers/index.js';
 import { logger } from '../../../utils/logger.js';
 
 export async function officialMediaRoutes(server: FastifyInstance): Promise<void> {
+
+  // Register multipart support for file uploads
+  await server.register(multipart, {
+    limits: {
+      fileSize: 100 * 1024 * 1024, // 100MB
+    },
+  });
 
   // GET /v1/media/:mediaId - Download media
   server.get('/:mediaId', async (request: FastifyRequest, reply: FastifyReply) => {
@@ -65,35 +74,39 @@ export async function officialMediaRoutes(server: FastifyInstance): Promise<void
     }
   });
 
-  // POST /v1/media - Upload media (for internal provider compatibility)
+  // POST /v1/media - Upload media
   server.post('/', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      // For internal provider: handle multipart upload
-      // For official provider: forward to Meta
+      const provider = getProvider();
 
-      // Check if multipart
-      const contentType = request.headers['content-type'] || '';
-      if (!contentType.includes('multipart/form-data')) {
+      if (!provider.uploadMedia) {
+        reply.status(501);
+        return {
+          error: {
+            message: 'Media upload not supported by this provider',
+            type: 'NotImplementedException',
+            code: 501,
+          }
+        };
+      }
+
+      const file = await request.file();
+
+      if (!file) {
         reply.status(400);
         return {
           error: {
-            message: 'Content-Type must be multipart/form-data',
+            message: 'No file uploaded. Send file as multipart/form-data with field name "file".',
             type: 'InvalidParameterException',
             code: 100,
           }
         };
       }
 
-      // For now, return not implemented
-      // Full multipart parsing would require additional plugins
-      reply.status(501);
-      return {
-        error: {
-          message: 'Media upload via multipart not yet implemented. Use direct Meta API for official provider.',
-          type: 'NotImplementedException',
-          code: 501,
-        }
-      };
+      const result = await provider.uploadMedia(file.file, file.mimetype);
+
+      reply.status(200);
+      return result;
     } catch (error) {
       const err = error as Error;
       logger.error({ error: err }, 'Media upload failed');

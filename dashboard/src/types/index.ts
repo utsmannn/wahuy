@@ -69,3 +69,52 @@ export interface Message {
   sessionId?: string;
   receivedAt?: string;
 }
+
+export interface ProviderInfo {
+  mode: 'internal' | 'official';
+  status: string;
+  name: string;
+  version: string;
+  hasConfig?: boolean;
+}
+
+export interface OfficialConfig {
+  accessToken: string;
+  appSecret: string;
+  phoneNumberId: string;
+  webhookVerifyToken: string;
+  baseUrl?: string;
+  businessAccountId?: string;
+}
+
+export interface WhatsAppTemplate {
+  name: string;
+  status: string;
+  category: string;
+  language: string;
+  id: string;
+  components?: Array<{
+    type: string;
+    text?: string;
+    format?: string;
+    example?: {
+      body_text?: string[][];
+      header_text?: string[];
+    };
+  }>;
+}
+
+export interface WebhookLog {
+  id: string;
+  timestamp: string;
+  source: 'meta' | 'internal';
+  event: string;
+  payload: unknown;
+  processed: boolean;
+  error?: string;
+}
+
+export interface WebhookLogStats {
+  total: number;
+  byEvent: Array<{ event: string; count: number }>;
+}

@@ -7,6 +7,7 @@
 import { FastifyInstance } from 'fastify';
 import { officialMessagesRoutes } from './messages.js';
 import { officialMediaRoutes } from './media.js';
+import { officialGroupRoutes } from './groups.js';
 import { officialWebhooksRoutes } from './webhooks.js';
 import { logger } from '../../../utils/logger.js';
 
@@ -19,17 +20,16 @@ export async function registerOfficialRoutes(server: FastifyInstance): Promise<v
   // Media API - GET/POST /v1/media/:id
   await server.register(officialMediaRoutes, { prefix: '/media' });
 
-  // Business Profile - GET /v1/business-profile
-  // TODO: Implement business profile endpoints
-
-  // Phone Numbers - GET /v1/phone-numbers
-  // TODO: Implement phone number endpoints
-
-  // Templates - GET/POST /v1/templates
-  // TODO: Implement template endpoints
-
-  // Webhooks - GET/POST /webhooks/whatsapp
-  await server.register(officialWebhooksRoutes, { prefix: '/webhooks/whatsapp' });
+  // Groups API - /v1/groups (Cloud API v19.0+)
+  await server.register(officialGroupRoutes, { prefix: '/groups' });
 
   logger.info('Official API routes registered');
+}
+
+/**
+ * Register webhook routes SEPARATELY (no auth middleware).
+ * Meta sends webhooks without X-API-Key — it uses X-Hub-Signature-256 instead.
+ */
+export async function registerOfficialWebhookRoutes(server: FastifyInstance): Promise<void> {
+  await server.register(officialWebhooksRoutes, { prefix: '/webhooks/whatsapp' });
 }

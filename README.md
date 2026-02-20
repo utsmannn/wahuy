@@ -9,7 +9,10 @@ A self-hosted WhatsApp Multi-Session API service. Manage multiple WhatsApp numbe
 
 ## Features
 
+- **Dual Provider Mode**: Choose between Internal (whatsapp-web.js) or Official (WhatsApp Cloud API/WABA)
 - **Multi-Session Support**: Manage multiple WhatsApp numbers from a single server
+- **Official API Proxy**: Full WhatsApp Cloud API compatibility with `/v1/messages` endpoint
+- **Group Management**: Create groups, manage members, promote admins via Cloud API
 - **REST API**: Full HTTP API for session and message management
 - **WebSocket Real-time**: Live events for QR codes, messages, and status changes
 - **Webhook Integration**: Forward events to your endpoints with HMAC signatures
@@ -18,15 +21,18 @@ A self-hosted WhatsApp Multi-Session API service. Manage multiple WhatsApp numbe
 - **Auto-Reconnect**: Automatic reconnection with exponential backoff on disconnection
 - **Typing Indicator**: Show "typing..." status before sending messages
 - **Read Receipts**: Mark messages as read (blue checkmarks)
-- **Multi-format Support**: Send text, images, documents, and locations
+- **Multi-format Support**: Send text, images, documents, locations, and stickers
+- **Media Streaming**: Direct stream media download/upload — no memory buffering
 - **TypeScript**: Fully typed for better developer experience
 
 ## Table of Contents
 
 - [Quick Start](#quick-start)
+- [Provider Modes](#provider-modes)
 - [Installation](#installation)
 - [Configuration](#configuration)
-- [API Documentation](#api-documentation)
+- [API Documentation (Internal Provider)](#api-documentation)
+- [Official API (Cloud API / WABA)](#official-api-cloud-api--waba)
 - [WebSocket Events](#websocket-events)
 - [Webhooks](#webhooks)
 - [Dashboard](#dashboard)
@@ -67,6 +73,26 @@ npm start
 # Access dashboard
 open http://localhost:7834
 ```
+
+## Provider Modes
+
+Wahuy supports two provider modes:
+
+| Feature | Internal (whatsapp-web.js) | Official (Cloud API / WABA) |
+|---------|---------------------------|----------------------------|
+| **Authentication** | QR code scan | Meta API token |
+| **1-on-1 Messages** | Yes | Yes |
+| **Group Messages** | Yes (all groups) | Only API-created groups |
+| **Media** | Yes | Yes (streaming) |
+| **Stability** | Session can drop | Stable (Meta-hosted) |
+| **Risk of Ban** | Possible (unofficial) | No (official) |
+| **Requires** | Chrome/Chromium | Meta Business Account |
+| **Config** | `PROVIDER=internal` | `PROVIDER=official` |
+
+### When to use which?
+
+- **Internal**: Full access to all groups, no Meta Business account needed, quick prototyping
+- **Official**: Production-ready, no risk of ban, reliable webhook delivery, group management via API
 
 ## Installation
 
@@ -126,6 +152,40 @@ STORAGE_PATH=./data
 
 # Logging
 LOG_LEVEL=info
+
+# Provider Mode (internal or official)
+PROVIDER=internal
+```
+
+### Official API Configuration (WABA)
+
+When using `PROVIDER=official`, add these to your `.env`:
+
+```env
+PROVIDER=official
+
+# Required - Get from Meta Developer Portal
+OFFICIAL_ACCESS_TOKEN=your-meta-access-token
+OFFICIAL_APP_SECRET=your-app-secret
+OFFICIAL_PHONE_NUMBER_ID=your-phone-number-id
+OFFICIAL_WEBHOOK_VERIFY_TOKEN=your-custom-verify-token
+
+# Optional
+OFFICIAL_BASE_URL=https://graph.facebook.com/v20.0
+OFFICIAL_BUSINESS_ACCOUNT_ID=your-business-account-id
+OFFICIAL_AUTO_DOWNLOAD_MEDIA=true
+OFFICIAL_MEDIA_CACHE_TTL=300
+OFFICIAL_MAX_MEDIA_SIZE=104857600
+
+# Rate Limiting
+OFFICIAL_RATE_LIMIT_MSG_PER_SEC=80
+OFFICIAL_QUEUE_ENABLED=true
+OFFICIAL_QUEUE_MAX_SIZE=10000
+OFFICIAL_QUEUE_PROVIDER=memory
+
+# Redis (for distributed queue)
+# OFFICIAL_QUEUE_PROVIDER=redis
+# REDIS_URL=redis://localhost:6379
 ```
 
 ## API Documentation
@@ -912,6 +972,235 @@ GET /api/health
 }
 ```
 
+## Official API (Cloud API / WABA)
+
+When using `PROVIDER=official`, Wahuy exposes a WhatsApp Cloud API-compatible interface at `/v1/*`.
+
+All `/v1/*` endpoints require `X-API-Key` header.
+
+**Base URL:** `http://localhost:7834/v1`
+
+### Send Message
+
+Compatible with Meta's Cloud API format:
+
+```http
+POST /v1/messages
+Content-Type: application/json
+X-API-Key: your-api-key
+
+{
+  "messaging_product": "whatsapp",
+  "to": "6281234567890",
+  "type": "text",
+  "text": { "body": "Hello from Wahuy!" }
+}
+```
+
+**Response:**
+```json
+{
+  "messaging_product": "whatsapp",
+  "contacts": [{ "input": "6281234567890", "wa_id": "6281234567890" }],
+  "messages": [{ "id": "wamid.xxx", "message_status": "accepted" }]
+}
+```
+
+**Supported message types:** `text`, `image`, `video`, `document`, `audio`, `sticker`, `location`, `template`, `interactive`, `contacts`
+
+#### Send Image
+```json
+{
+  "messaging_product": "whatsapp",
+  "to": "6281234567890",
+  "type": "image",
+  "image": { "link": "https://example.com/image.jpg", "caption": "Check this out" }
+}
+```
+
+#### Send Template
+```json
+{
+  "messaging_product": "whatsapp",
+  "to": "6281234567890",
+  "type": "template",
+  "template": {
+    "name": "hello_world",
+    "language": { "code": "en_US" }
+  }
+}
+```
+
+### Media
+
+#### Download Media
+```http
+GET /v1/media/:mediaId
+X-API-Key: your-api-key
+```
+
+Returns the media file as a stream with the correct `Content-Type` header. Media URLs are cached for 4 minutes.
+
+#### Upload Media
+```http
+POST /v1/media
+Content-Type: multipart/form-data
+X-API-Key: your-api-key
+
+file=@photo.jpg
+```
+
+**Response:**
+```json
+{ "id": "media-id-from-meta" }
+```
+
+### Groups (Cloud API v19.0+)
+
+Create and manage WhatsApp groups via the Cloud API. Messages from API-created groups are delivered to your webhook.
+
+#### Create Group
+```http
+POST /v1/groups
+Content-Type: application/json
+X-API-Key: your-api-key
+
+{
+  "subject": "Daily Report Team",
+  "participants": ["+6281234567890", "+6289876543210"],
+  "description": "Automated daily reports"
+}
+```
+
+**Response:**
+```json
+{ "id": "GROUP_ID" }
+```
+
+#### List Groups
+```http
+GET /v1/groups
+X-API-Key: your-api-key
+```
+
+**Response:**
+```json
+{
+  "data": [
+    { "id": "GROUP_ID", "subject": "Daily Report Team", "description": "..." }
+  ]
+}
+```
+
+#### Get Group Info
+```http
+GET /v1/groups/:groupId
+X-API-Key: your-api-key
+```
+
+#### Update Group
+```http
+PATCH /v1/groups/:groupId
+Content-Type: application/json
+X-API-Key: your-api-key
+
+{
+  "subject": "New Group Name",
+  "description": "Updated description"
+}
+```
+
+#### Delete Group
+```http
+DELETE /v1/groups/:groupId
+X-API-Key: your-api-key
+```
+
+#### Manage Participants
+
+Add, remove, promote, or demote group members with a single endpoint:
+
+```http
+POST /v1/groups/:groupId/participants
+Content-Type: application/json
+X-API-Key: your-api-key
+
+{
+  "participants": ["+6281234567890"],
+  "action": "add"
+}
+```
+
+| Action | Description |
+|--------|-------------|
+| `add` | Add members to group |
+| `remove` | Remove members from group |
+| `promote` | Make member a group admin |
+| `demote` | Remove admin role from member |
+
+**Response:**
+```json
+{
+  "participants": [
+    { "phone_number": "+6281234567890", "status": "success" }
+  ]
+}
+```
+
+#### Get Invite Link
+```http
+GET /v1/groups/:groupId/invite
+X-API-Key: your-api-key
+```
+
+**Response:**
+```json
+{ "link": "https://chat.whatsapp.com/invite/xxx" }
+```
+
+#### Send Message to Group
+
+Use the standard messages endpoint with the group ID:
+
+```http
+POST /v1/messages
+Content-Type: application/json
+X-API-Key: your-api-key
+
+{
+  "messaging_product": "whatsapp",
+  "to": "GROUP_ID",
+  "type": "text",
+  "text": { "body": "📊 Daily Report: Revenue $12,345" }
+}
+```
+
+### Webhooks (Meta)
+
+Wahuy receives webhook events from Meta at `/webhooks/whatsapp` (no auth required — uses HMAC signature verification).
+
+Configure this URL in your [Meta Developer Dashboard](https://developers.facebook.com/apps/) under WhatsApp > Configuration > Webhook URL.
+
+**Webhook URL:** `https://your-domain.com/webhooks/whatsapp`
+
+#### Verification Challenge
+
+Meta sends a GET request to verify your webhook:
+
+```http
+GET /webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=YOUR_TOKEN&hub.challenge=CHALLENGE
+```
+
+Returns the `challenge` value if `verify_token` matches `OFFICIAL_WEBHOOK_VERIFY_TOKEN`.
+
+#### Receiving Events
+
+Meta sends POST requests with incoming messages and status updates. Wahuy verifies the `X-Hub-Signature-256` header using your `OFFICIAL_APP_SECRET`, then forwards events to your registered webhooks via the Webhook Dispatcher.
+
+**Supported events:**
+- Incoming messages (text, image, video, document, audio, sticker, location, reaction)
+- Message status updates (sent, delivered, read, failed)
+
 ## WebSocket Events
 
 Connect to WebSocket for real-time updates:
@@ -1116,6 +1405,40 @@ Access:
 - API: http://localhost:7834/api
 - Health: http://localhost:7834/api/health
 
+### Docker with Official API (WABA)
+
+```yaml
+services:
+  wahuy:
+    image: ghcr.io/utsmannn/wahuy:latest
+    container_name: wahuy
+    restart: unless-stopped
+    ports:
+      - "7834:7834"
+    environment:
+      - NODE_ENV=production
+      - PORT=7834
+      - API_KEY=${API_KEY:-your-api-key}
+      - PROVIDER=official
+      - OFFICIAL_ACCESS_TOKEN=${OFFICIAL_ACCESS_TOKEN}
+      - OFFICIAL_APP_SECRET=${OFFICIAL_APP_SECRET}
+      - OFFICIAL_PHONE_NUMBER_ID=${OFFICIAL_PHONE_NUMBER_ID}
+      - OFFICIAL_WEBHOOK_VERIFY_TOKEN=${OFFICIAL_WEBHOOK_VERIFY_TOKEN}
+      - OFFICIAL_QUEUE_PROVIDER=redis
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
+volumes:
+  redis_data:
+```
+
 ### Data Persistence
 
 All data is stored in the Docker volume `wahuy_data`:
@@ -1240,21 +1563,30 @@ npm run format
 ```
 wahuy/
 ├── src/
-│   ├── api/           # REST API routes
-│   ├── core/          # Core business logic
-│   ├── storage/       # File & SQLite storage
-│   ├── websocket/     # WebSocket server
-│   ├── types/         # TypeScript types
-│   └── utils/         # Utilities
-├── dashboard/         # React dashboard
-├── data/              # Storage directory
-│   ├── sessions.json  # Session configs
-│   ├── webhooks.json  # Webhook configs
-│   ├── messages.db    # SQLite message history
-│   └── sessions/      # WhatsApp auth data
-├── docker/            # Docker configuration
-├── dist/              # Compiled output
-└── tests/             # Test files
+│   ├── api/                    # REST API routes
+│   │   ├── routes/
+│   │   │   ├── whatsapp-official/  # Official API routes (/v1/*)
+│   │   │   │   ├── messages.ts     # POST /v1/messages
+│   │   │   │   ├── media.ts        # GET/POST /v1/media
+│   │   │   │   ├── groups.ts       # /v1/groups/* (CRUD + participants)
+│   │   │   │   └── webhooks.ts     # /webhooks/whatsapp (Meta webhooks)
+│   │   │   ├── sessions.ts         # Internal session management
+│   │   │   ├── messages.ts         # Internal message routes
+│   │   │   └── webhooks.ts         # Internal webhook management
+│   │   └── middleware/             # Auth middleware
+│   ├── providers/                  # Dual provider system
+│   │   ├── official/               # WhatsApp Cloud API (WABA)
+│   │   ├── internal/               # whatsapp-web.js
+│   │   └── types.ts                # Shared provider types
+│   ├── core/                       # Core business logic
+│   ├── storage/                    # File & SQLite storage
+│   ├── websocket/                  # WebSocket server
+│   └── utils/                      # Utilities
+├── dashboard/                      # React dashboard
+├── data/                           # Storage directory
+├── docker/                         # Docker configuration
+├── dist/                           # Compiled output
+└── tests/                          # Test files
 ```
 
 ## Security Considerations
@@ -1283,4 +1615,4 @@ MIT License - see [LICENSE](LICENSE) file
 
 ---
 
-**Note:** This project is not affiliated with WhatsApp Inc. Use at your own risk. WhatsApp may ban accounts for unofficial usage.
+**Note:** This project is not affiliated with WhatsApp Inc or Meta Platforms Inc. The Internal provider (whatsapp-web.js) is unofficial and WhatsApp may ban accounts. The Official provider uses the legitimate WhatsApp Cloud API — no risk of ban.
