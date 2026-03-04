@@ -70,10 +70,6 @@ export class WhatsAppClient extends EventEmitter {
           '--disable-site-isolation-trials'
         ]
       },
-      webVersionCache: {
-        type: 'remote',
-        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1031592179-alpha.html',
-      },
     });
 
     this.setupEventHandlers();
@@ -497,10 +493,6 @@ export class WhatsAppClient extends EventEmitter {
             '--disable-features=IsolateOrigins,site-per-process',
             '--disable-site-isolation-trials'
           ]
-        },
-        webVersionCache: {
-          type: 'remote',
-          remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1031592179-alpha.html',
         },
       });
 

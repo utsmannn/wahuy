@@ -143,51 +143,31 @@ export function ProviderSetup({ providerInfo, onSwitch }: ProviderSetupProps) {
 
   const statusColor =
     providerInfo?.status === 'ready' || providerInfo?.status === 'connected'
-      ? 'bg-green-100 text-green-700'
+      ? 'bg-green-50 border-green-100 text-green-700 dark:bg-green-950/30 dark:border-green-900 dark:text-green-400'
       : providerInfo?.status === 'error' || providerInfo?.status === 'failed'
-        ? 'bg-red-100 text-red-700'
-        : 'bg-yellow-100 text-yellow-700';
+        ? 'bg-red-50 border-red-100 text-red-700 dark:bg-red-950/30 dark:border-red-900 dark:text-red-400'
+        : 'bg-neutral-50 border-neutral-100 text-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-500';
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-      <h2 className="text-lg font-medium text-gray-800 mb-6">Provider Configuration</h2>
-
-      {/* Current Status */}
-      <div className="mb-6">
-        <label className="block text-sm font-medium text-gray-500 mb-2">Current Status</label>
-        <div className="flex items-center gap-3">
-          <span
-            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${
-              providerInfo?.mode === 'official'
-                ? 'bg-green-100 text-green-700'
-                : 'bg-indigo-100 text-indigo-700'
-            }`}
-          >
-            {providerInfo?.mode === 'official' ? (
-              <Cloud size={12} />
-            ) : (
-              <Smartphone size={12} />
-            )}
-            {providerInfo?.mode === 'official' ? 'Official (Cloud API)' : 'Internal (Web.js)'}
-          </span>
-          {providerInfo?.status && (
-            <span
-              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium ${statusColor}`}
-            >
-              {providerInfo.status === 'ready' || providerInfo.status === 'connected' ? (
-                <CheckCircle size={12} />
-              ) : (
-                <AlertCircle size={12} />
-              )}
-              {providerInfo.status}
-            </span>
-          )}
+    <div className="bg-white dark:bg-neutral-900 rounded-2xl border border-neutral-200 dark:border-neutral-800 p-8 font-sans shadow-sm transition-colors duration-300">
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h2 className="text-xl font-black tracking-tight text-neutral-900 dark:text-white">Infrastructure</h2>
+          <p className="text-xs text-neutral-400 dark:text-neutral-500 font-bold uppercase tracking-widest mt-1">Core Engine Configuration</p>
+        </div>
+        
+        {/* Current Status */}
+        <div className="flex items-center gap-2">
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[10px] font-black tracking-widest uppercase transition-colors ${statusColor} shadow-sm`}>
+            <div className={`w-1.5 h-1.5 rounded-full ${providerInfo?.status === 'ready' ? 'bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.4)]' : 'bg-neutral-300 dark:bg-neutral-600'}`} />
+            {providerInfo?.status || 'OFFLINE'}
+          </div>
         </div>
       </div>
 
       {/* Mode Selector */}
-      <div className="mb-6">
-        <label className="block text-sm font-medium text-gray-500 mb-3">Select Mode</label>
+      <div className="mb-10">
+        <label className="block text-[11px] font-black text-neutral-400 dark:text-neutral-500 uppercase tracking-[0.2em] mb-4 px-1">Active Architecture</label>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {/* Internal Card */}
           <button
@@ -196,31 +176,25 @@ export function ProviderSetup({ providerInfo, onSwitch }: ProviderSetupProps) {
               setSelectedMode('internal');
               setError(null);
             }}
-            className={`flex items-start gap-4 p-4 rounded-lg border-2 text-left transition-colors ${
+            className={`flex items-start gap-5 p-6 rounded-2xl border-2 text-left transition-all ${
               selectedMode === 'internal'
-                ? 'border-indigo-500 bg-indigo-50/50'
-                : 'border-gray-200 hover:border-gray-300 bg-white'
+                ? 'border-neutral-900 dark:border-white bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 shadow-md'
+                : 'border-neutral-100 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/50 hover:border-neutral-200 dark:hover:border-neutral-700 text-neutral-500 dark:text-neutral-400'
             }`}
           >
             <div
-              className={`flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center ${
+              className={`flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center border transition-colors ${
                 selectedMode === 'internal'
-                  ? 'bg-indigo-100 text-indigo-600'
-                  : 'bg-gray-100 text-gray-500'
+                  ? 'bg-white/10 dark:bg-neutral-900/10 border-white/20 dark:border-neutral-900/20 text-white dark:text-neutral-900'
+                  : 'bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-700 text-neutral-400 dark:text-neutral-500'
               }`}
             >
               <Smartphone size={20} />
             </div>
             <div>
-              <p
-                className={`font-medium ${
-                  selectedMode === 'internal' ? 'text-indigo-900' : 'text-gray-800'
-                }`}
-              >
-                Internal (Web.js)
-              </p>
-              <p className="text-sm text-gray-500 mt-1">
-                Uses whatsapp-web.js with QR pairing. Manage sessions in the Sessions tab.
+              <p className="text-sm font-black uppercase tracking-widest">Internal</p>
+              <p className={`text-xs mt-1 leading-relaxed ${selectedMode === 'internal' ? 'text-neutral-300 dark:text-neutral-600' : 'text-neutral-400 dark:text-neutral-500'}`}>
+                Web.js engine with QR pairing. Supports multiple concurrent sessions.
               </p>
             </div>
           </button>
@@ -232,31 +206,25 @@ export function ProviderSetup({ providerInfo, onSwitch }: ProviderSetupProps) {
               setSelectedMode('official');
               setError(null);
             }}
-            className={`flex items-start gap-4 p-4 rounded-lg border-2 text-left transition-colors ${
+            className={`flex items-start gap-5 p-6 rounded-2xl border-2 text-left transition-all ${
               selectedMode === 'official'
-                ? 'border-indigo-500 bg-indigo-50/50'
-                : 'border-gray-200 hover:border-gray-300 bg-white'
+                ? 'border-neutral-900 dark:border-white bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 shadow-md'
+                : 'border-neutral-100 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/50 hover:border-neutral-200 dark:hover:border-neutral-700 text-neutral-500 dark:text-neutral-400'
             }`}
           >
             <div
-              className={`flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center ${
+              className={`flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center border transition-colors ${
                 selectedMode === 'official'
-                  ? 'bg-indigo-100 text-indigo-600'
-                  : 'bg-gray-100 text-gray-500'
+                  ? 'bg-white/10 dark:bg-neutral-900/10 border-white/20 dark:border-neutral-900/20 text-white dark:text-neutral-900'
+                  : 'bg-white dark:bg-neutral-900 border-neutral-200 dark:border-neutral-700 text-neutral-400 dark:text-neutral-500'
               }`}
             >
               <Cloud size={20} />
             </div>
             <div>
-              <p
-                className={`font-medium ${
-                  selectedMode === 'official' ? 'text-indigo-900' : 'text-gray-800'
-                }`}
-              >
-                Official (Cloud API)
-              </p>
-              <p className="text-sm text-gray-500 mt-1">
-                Uses WhatsApp Business API. Requires Meta developer credentials.
+              <p className="text-sm font-black uppercase tracking-widest">Official</p>
+              <p className={`text-xs mt-1 leading-relaxed ${selectedMode === 'official' ? 'text-neutral-300 dark:text-neutral-600' : 'text-neutral-400 dark:text-neutral-500'}`}>
+                Cloud API integration. Direct Meta connectivity for production scale.
               </p>
             </div>
           </button>
@@ -266,174 +234,140 @@ export function ProviderSetup({ providerInfo, onSwitch }: ProviderSetupProps) {
       {/* Official Config Form */}
       <form onSubmit={handleSave}>
         <div
-          className={`overflow-hidden transition-all duration-300 ease-in-out ${
+          className={`overflow-hidden transition-all duration-300 ${
             selectedMode === 'official'
-              ? 'max-h-[800px] opacity-100 mb-6'
+              ? 'max-h-[1000px] opacity-100 mb-8'
               : 'max-h-0 opacity-0'
           }`}
         >
           {/* Show "Already Configured" banner if config exists */}
           {hasSavedConfig && !officialConfig.accessToken && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
-              <div className="flex items-center gap-3">
-                <ShieldCheck className="text-green-600" size={20} />
-                <div>
-                  <p className="text-sm font-medium text-green-800">
-                    Official Provider Already Configured
-                  </p>
-                  <p className="text-xs text-green-600 mt-0.5">
-                    Credentials are saved securely. Enter new credentials below to update.
-                  </p>
-                </div>
+            <div className="bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 rounded-2xl p-6 mb-6 flex items-center gap-4 border border-neutral-800 dark:border-neutral-200 shadow-sm">
+              <ShieldCheck className="text-white dark:text-neutral-900" size={24} />
+              <div>
+                <p className="text-xs font-black uppercase tracking-widest">Vault Protected</p>
+                <p className="text-[11px] text-neutral-400 dark:text-neutral-500 font-medium mt-1">
+                  Active credentials are encrypted. Enter new keys to overwrite existing configuration.
+                </p>
               </div>
             </div>
           )}
 
-          <div className="border border-gray-200 rounded-lg p-5 space-y-4">
-            <h3 className="text-sm font-medium text-gray-700">
-              {hasSavedConfig ? 'Update Official API Credentials' : 'Official API Credentials'}
-            </h3>
-
-            {/* Access Token */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Access Token <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="password"
-                value={officialConfig.accessToken}
-                onChange={(e) => updateConfig('accessToken', e.target.value)}
-                placeholder="Your Meta access token"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-              />
+          <div className="space-y-6 animate-in fade-in slide-in-from-top-4 duration-500">
+            <h3 className="text-[11px] font-black text-neutral-400 dark:text-neutral-500 uppercase tracking-[0.2em] mb-4 px-1">Meta API Credentials</h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-widest mb-3 px-1">Permanent Access Token</label>
+                <input
+                  type="password"
+                  value={officialConfig.accessToken}
+                  onChange={(e) => updateConfig('accessToken', e.target.value)}
+                  placeholder="EAAB..."
+                  className="w-full px-5 py-3.5 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-sm font-mono focus:ring-1 focus:ring-neutral-900 dark:focus:ring-white outline-none text-neutral-900 dark:text-white shadow-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-widest mb-3 px-1">App Secret Key</label>
+                <input
+                  type="password"
+                  value={officialConfig.appSecret}
+                  onChange={(e) => updateConfig('appSecret', e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full px-5 py-3.5 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-sm font-mono focus:ring-1 focus:ring-neutral-900 dark:focus:ring-white outline-none text-neutral-900 dark:text-white shadow-sm"
+                />
+              </div>
             </div>
 
-            {/* App Secret */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                App Secret <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="password"
-                value={officialConfig.appSecret}
-                onChange={(e) => updateConfig('appSecret', e.target.value)}
-                placeholder="Your Meta app secret"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-widest mb-3 px-1">Phone Number ID</label>
+                <input
+                  type="text"
+                  value={officialConfig.phoneNumberId}
+                  onChange={(e) => updateConfig('phoneNumberId', e.target.value)}
+                  placeholder="1234567890"
+                  className="w-full px-5 py-3.5 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-sm font-mono focus:ring-1 focus:ring-neutral-900 dark:focus:ring-white outline-none text-neutral-900 dark:text-white shadow-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-widest mb-3 px-1">Webhook Verify Token</label>
+                <input
+                  type="text"
+                  value={officialConfig.webhookVerifyToken}
+                  onChange={(e) => updateConfig('webhookVerifyToken', e.target.value)}
+                  placeholder="custom_string_here"
+                  className="w-full px-5 py-3.5 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-sm font-mono focus:ring-1 focus:ring-neutral-900 dark:focus:ring-white outline-none text-neutral-900 dark:text-white shadow-sm"
+                />
+              </div>
             </div>
 
-            {/* Phone Number ID */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Phone Number ID <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={officialConfig.phoneNumberId}
-                onChange={(e) => updateConfig('phoneNumberId', e.target.value)}
-                placeholder="e.g. 1234567890"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-              />
-            </div>
-
-            {/* Webhook Verify Token */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Webhook Verify Token <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={officialConfig.webhookVerifyToken}
-                onChange={(e) => updateConfig('webhookVerifyToken', e.target.value)}
-                placeholder="A custom token for webhook verification"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-              />
-            </div>
-
-            {/* Base URL (optional) */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Base URL <span className="text-gray-400 font-normal">(optional)</span>
-              </label>
-              <input
-                type="text"
-                value={officialConfig.baseUrl}
-                onChange={(e) => updateConfig('baseUrl', e.target.value)}
-                placeholder="https://graph.facebook.com/v20.0"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-              />
-            </div>
-
-            {/* Business Account ID (optional) */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Business Account ID <span className="text-gray-400 font-normal">(optional)</span>
-              </label>
-              <input
-                type="text"
-                value={officialConfig.businessAccountId}
-                onChange={(e) => updateConfig('businessAccountId', e.target.value)}
-                placeholder="Your WABA ID"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-              />
+            <div className="pt-4 border-t border-neutral-50 dark:border-neutral-800 grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-widest mb-3 px-1">Endpoint Base (v20.0)</label>
+                <input
+                  type="text"
+                  value={officialConfig.baseUrl}
+                  onChange={(e) => updateConfig('baseUrl', e.target.value)}
+                  placeholder="https://graph.facebook.com/v20.0"
+                  className="w-full px-5 py-3.5 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-sm font-mono text-neutral-900 dark:text-white shadow-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-widest mb-3 px-1">Business Account ID</label>
+                <input
+                  type="text"
+                  value={officialConfig.businessAccountId}
+                  onChange={(e) => updateConfig('businessAccountId', e.target.value)}
+                  placeholder="WABA_ID"
+                  className="w-full px-5 py-3.5 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-sm font-mono text-neutral-900 dark:text-white shadow-sm"
+                />
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Test Result */}
-        {testResult && (
-          <div
-            className={`flex items-center gap-2 p-3 rounded-lg mb-4 text-sm ${
-              testResult.success
-                ? 'bg-green-50 text-green-700 border border-green-200'
-                : 'bg-red-50 text-red-700 border border-red-200'
-            }`}
-          >
-            {testResult.success ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
-            {testResult.message}
+        {/* Test & Save Actions */}
+        <div className="flex items-center justify-between pt-6 border-t border-neutral-100 dark:border-neutral-800">
+          <div className="flex-1">
+            {testResult && (
+              <div className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 ${testResult.success ? 'text-green-600' : 'text-red-600'}`}>
+                {testResult.success ? <CheckCircle size={12} /> : <AlertCircle size={12} />}
+                {testResult.message}
+              </div>
+            )}
+            {error && (
+              <div className="text-[10px] font-black uppercase tracking-widest flex items-center gap-2 text-red-600">
+                <AlertCircle size={12} />
+                {error}
+              </div>
+            )}
           </div>
-        )}
 
-        {/* Error */}
-        {error && (
-          <div className="flex items-center gap-2 p-3 rounded-lg mb-4 text-sm bg-red-50 text-red-700 border border-red-200">
-            <AlertCircle size={16} />
-            {error}
+          <div className="flex items-center gap-3">
+            {selectedMode === 'official' && requiredFieldsFilled && (
+              <button
+                type="button"
+                onClick={handleTestConnection}
+                disabled={testing}
+                className="inline-flex items-center gap-2 px-6 py-3 border border-neutral-200 dark:border-neutral-700 rounded-xl text-xs font-black uppercase tracking-widest text-neutral-600 dark:text-neutral-400 bg-white dark:bg-neutral-900 hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-all shadow-sm"
+              >
+                {testing ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
+                {testing ? 'Probing...' : 'Test Connection'}
+              </button>
+            )}
+
+            {showSaveButton && (
+              <button
+                type="submit"
+                disabled={loading || (selectedMode === 'official' && !requiredFieldsFilled)}
+                className="inline-flex items-center gap-2 px-8 py-3 bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-neutral-800 dark:hover:bg-neutral-100 transition-all shadow-md"
+              >
+                {loading ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                {loading ? 'Applying...' : 'Save Architecture'}
+              </button>
+            )}
           </div>
-        )}
-
-        {/* Action Buttons */}
-        <div className="flex items-center gap-3">
-          {selectedMode === 'official' && requiredFieldsFilled && (
-            <button
-              type="button"
-              onClick={handleTestConnection}
-              disabled={testing}
-              className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {testing ? (
-                <Loader2 size={16} className="animate-spin" />
-              ) : (
-                <Zap size={16} />
-              )}
-              {testing ? 'Testing...' : 'Test Connection'}
-            </button>
-          )}
-
-          {showSaveButton && (
-            <button
-              type="submit"
-              disabled={loading || (selectedMode === 'official' && !requiredFieldsFilled)}
-              className="inline-flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {loading ? (
-                <Loader2 size={16} className="animate-spin" />
-              ) : (
-                <Save size={16} />
-              )}
-              {loading ? 'Saving...' : 'Save & Apply'}
-            </button>
-          )}
         </div>
       </form>
     </div>

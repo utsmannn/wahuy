@@ -8,6 +8,8 @@ RUN apt-get update && apt-get install -y \
     python3 \
     make \
     g++ \
+    git \
+    openssh-client \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
@@ -33,10 +35,10 @@ RUN cd dashboard && npm run build
 # Production stage
 FROM node:20-slim
 
-# Install Chromium and dependencies for Puppeteer
+# Install dependencies for Puppeteer (NOT system Chromium - let Puppeteer download bundled Chrome)
+# The bundled Chrome v145+ fixes the "ready" event hang issue that occurs with system Chromium v144
 RUN apt-get update && apt-get install -y \
     ca-certificates \
-    chromium \
     fonts-liberation \
     libappindicator3-1 \
     libasound2 \
@@ -45,6 +47,7 @@ RUN apt-get update && apt-get install -y \
     libcups2 \
     libdbus-1-3 \
     libgdk-pixbuf2.0-0 \
+    libgbm1 \
     libnspr4 \
     libnss3 \
     libx11-xcb1 \
@@ -59,13 +62,8 @@ RUN apt-get update && apt-get install -y \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
-# Tell Puppeteer to use system Chromium
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-
-# Disable Chrome crashpad
-ENV CHROME_DEVEL_SANDBOX=/usr/local/sbin/chrome-devel-sandbox
-ENV CHROME_BIN=/usr/bin/chromium
+# Let Puppeteer download and use its own bundled Chrome (v145+)
+# This fixes the session stuck at "authenticated" -> never "ready" issue
 
 WORKDIR /app
 
