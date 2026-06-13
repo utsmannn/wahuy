@@ -44,7 +44,7 @@ Important events:
 
 ## Message display
 
-Incoming messages can use Baileys v7 LID JIDs (`12345@lid`). The dashboard displays the phone number from `message.contacts.sender.number` when available, instead of deriving a fake number from the JID. If Baileys has not provided a PN mapping yet, it falls back to the visible JID.
+Incoming messages can use Baileys v7 LID identifiers (`12345@lid`). The dashboard displays `message.contacts.sender.number` only when Baileys explicitly provides a trusted phone mapping. It does not derive phone numbers from identifiers. If no mapping is available yet, it falls back to showing the opaque identifier.
 
 ## Development
 

@@ -26,7 +26,7 @@ flowchart LR
 
 **Wahuy is the middle layer.** Apps call simple HTTP endpoints. Wahuy handles WhatsApp sessions, provider routing, message sending, media, realtime events, webhook forwarding, and persistence.
 
-**Key difference from calling Meta directly:** Wahuy can run in either unofficial multi-session QR mode for fast automation, or Official Cloud API proxy mode for production WABA integrations. Internal mode uses Baileys — a direct WebSocket-based library — so no Chromium/Puppeteer needed. Baileys v7 LID JIDs are preserved as message identity; Wahuy only fills `contacts.*.number` when a trusted PN mapping is available.
+**Key difference from calling Meta directly:** Wahuy can run in either unofficial multi-session QR mode for fast automation, or Official Cloud API proxy mode for production WABA integrations. Internal mode uses Baileys — a direct WebSocket-based library — so no Chromium/Puppeteer needed. Baileys identifiers are preserved as message identity; Wahuy only fills `contacts.*.number` when Baileys explicitly provides a trusted phone mapping.
 
 ### Core Features
 
@@ -214,9 +214,9 @@ When a pairing QR is generated, Wahuy emits both `session:status` with `status: 
 
 ### Message Contact Metadata
 
-Internal-mode messages may use Baileys v7 LID JIDs such as `12345@lid`. Wahuy keeps those IDs in `from`, `to`, and `contacts.*.id` so callers can track the exact WhatsApp identity. Phone numbers are exposed only in `contacts.*.number` when Baileys provides a trusted PN JID via `remoteJidAlt`, `participantAlt`, `senderPn`, contact sync, history sync, `lid-mapping.update`, or the Baileys LID mapping store.
+Internal-mode messages may use Baileys v7 LID identifiers such as `12345@lid`. Wahuy keeps those identifiers in `from`, `to`, and `contacts.*.id` so callers can track the exact WhatsApp identity. Treat them as opaque IDs, not phone-number strings.
 
-If no mapping exists yet, `contacts.*.number` is `null` instead of a fake number derived from the LID user part.
+Phone numbers are exposed only in `contacts.*.number` when Baileys explicitly provides trusted metadata via `remoteJidAlt`, `participantAlt`, `senderPn`, contact sync, history sync, `lid-mapping.update`, or the Baileys mapping store. If no mapping exists yet, `contacts.*.number` is `null` instead of a fake number derived from the visible identifier.
 
 ### Webhook Payload Format
 
@@ -239,7 +239,7 @@ If no mapping exists yet, `contacts.*.number` is `null` instead of a fake number
         "pushname": "Jane"
       },
       "receiver": {
-        "id": "6289876543210@s.whatsapp.net",
+        "id": "98765@lid",
         "number": "6289876543210"
       }
     }

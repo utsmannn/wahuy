@@ -265,13 +265,15 @@ curl -X POST http://localhost:7834/api/sessions/main/messages/send \
   -d '{"to":"6281234567890","text":"Hello from Wahuy"}'
 ```
 
-Recipient formats:
+Recipient formats for sending:
 
 | Format | Example | Meaning |
 |--------|---------|---------|
-| Phone | `6281234567890` | Auto-normalized to WhatsApp JID `@s.whatsapp.net`. |
-| Full JID | `6281234567890@s.whatsapp.net` | Preserved as-is. |
-| Group JID | `123456789@g.us` | Group chat (Baileys format). |
+| Phone number | `6281234567890` | Recommended for 1:1 outbound sends. Pass the human phone number; Wahuy/Baileys handles the internal addressing. |
+| WhatsApp identifier | `12345@lid` | Accepted only when the caller already has an identifier from a previous Wahuy/Baileys event. Treat it as an opaque ID. |
+| Group identifier | `123456789@g.us` | Group chat target. |
+
+Do not infer phone numbers from inbound identifiers. Incoming IDs such as `@lid` are opaque WhatsApp identities, not phone-number strings.
 
 ---
 
@@ -410,7 +412,7 @@ curl -X POST http://localhost:7834/api/webhooks \
         "pushname": "Jane"
       },
       "receiver": {
-        "id": "6289876543210@s.whatsapp.net",
+        "id": "98765@lid",
         "number": "6289876543210"
       }
     }
@@ -418,7 +420,7 @@ curl -X POST http://localhost:7834/api/webhooks \
 }
 ```
 
-Internal mode preserves Baileys LID JIDs in `from`, `to`, and `contacts.*.id`. Use `contacts.*.number` when you need the phone number; it is populated only when Baileys provides a trusted PN mapping. If no LID→PN mapping exists yet, the number is `null`.
+Internal mode preserves Baileys identifiers in `from`, `to`, and `contacts.*.id`. Treat those fields as opaque WhatsApp identifiers, not phone-number strings. Use `contacts.*.number` only when you specifically need the phone number; it is populated only when Baileys explicitly provides a trusted mapping. If no mapping exists yet, the number is `null`.
 
 ### Verify webhook signatures
 
@@ -469,28 +471,21 @@ socket.on('message:sent', (event) => console.log('Sent', event.message));
 
 The QR is also available via REST fallback (`GET /api/sessions/:id/qr`) — the dashboard polls this automatically if WebSocket hasn't delivered it yet.
 
-### Message identity and phone numbers
+### Message identity and contact numbers
 
-Baileys v7 may identify users with LID JIDs like `12345@lid`. Do not assume the user part of an `@lid` JID is a phone number.
+Baileys v7 may identify users with LID identifiers like `12345@lid`. Treat these as opaque WhatsApp identities. They are not phone numbers, and their user part must not be parsed as one.
 
 Wahuy's Internal provider follows this rule:
 
 | Field | Meaning |
 |-------|---------|
-| `from` / `to` | Normalized Baileys JID identity. May be `@lid`. |
-| `contacts.sender.id` / `contacts.receiver.id` | Same identity semantics as above. May be `@lid`. |
-| `contacts.sender.number` / `contacts.receiver.number` | Real phone number when Baileys provides a PN mapping; otherwise `null`. |
+| `from` / `to` | Baileys message identity. Usually an opaque WhatsApp ID such as `@lid`. |
+| `contacts.sender.id` / `contacts.receiver.id` | Contact identity matching the message identity. Usually `@lid`. |
+| `contacts.sender.number` / `contacts.receiver.number` | Phone number only when Baileys explicitly provides one; otherwise `null`. |
 
-Phone number resolution uses, in order where available:
+The phone number may come from Baileys metadata such as `remoteJidAlt`, `participantAlt`, `senderPn`, contact sync, history sync, `lid-mapping.update`, or the Baileys LID mapping store. These are trusted metadata sources from Baileys; they are not derived from the visible `@lid` value.
 
-1. message key alternate JIDs: `remoteJidAlt`, `participantAlt`
-2. optional `senderPn` from newer Baileys builds
-3. contact sync fields: `phoneNumber`, `lid`
-4. history sync `lidPnMappings`
-5. `lid-mapping.update` events
-6. `sock.signalRepository.lidMapping.getPNForLID(lid)`
-
-Never derive a phone number by splitting an `@lid` JID.
+Never derive a phone number from a WhatsApp identifier.
 
 ---
 
