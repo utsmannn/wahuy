@@ -1,8 +1,10 @@
 # Wahuy — AI Agent Guide
 
-Wahuy is a self-hosted WhatsApp API gateway. It wraps either **Internal mode** (`whatsapp-web.js`, QR login, multi-session) or **Official mode** (Meta WhatsApp Cloud API/WABA) behind a simple HTTP API with webhooks, WebSocket events, dashboard UI, and persistent message history.
+Wahuy is a self-hosted WhatsApp API gateway. It wraps either **Internal mode** (Baileys — WebSocket-based, QR login, multi-session, no browser needed) or **Official mode** (Meta WhatsApp Cloud API/WABA) behind a simple HTTP API with webhooks, WebSocket events, dashboard UI, and persistent message history.
 
 Use this guide when an AI agent needs to install Wahuy, understand its API surface, or build an integration on top of it.
+
+**Docker image:** ~350MB (no Chromium/Puppeteer).
 
 ---
 
@@ -39,9 +41,9 @@ Repo: `https://github.com/utsmannn/wahuy`
 
 ## 1. Installation
 
-### Option A: Docker (recommended)
+### Option A: Docker (recommended, ~350MB image)
 
-Wahuy is intended to run with a persistent `data/` volume because WhatsApp sessions and message history are stored there.
+Wahuy needs a persistent `data/` volume because WhatsApp sessions and message history are stored there.
 
 ```bash
 docker run -d \
@@ -66,7 +68,7 @@ curl http://localhost:7835/api/health
 
 The included `docker-compose.yml` maps host `7835` to container `7834`.
 
-### Option B: Local development
+### Option B: Local development (no Chromium needed)
 
 ```bash
 git clone https://github.com/utsmannn/wahuy.git
@@ -99,9 +101,6 @@ Dashboard: `http://localhost:7834` when `PORT=7834` and `DASHBOARD_ENABLED=true`
 
 | Variable | Purpose |
 |----------|---------|
-| `PUPPETEER_EXECUTABLE_PATH` | Optional Chrome/Chromium executable path. |
-| `PUPPETEER_HEADLESS` | Headless browser mode. |
-| `PUPPETEER_ARGS` | Comma-separated Chromium args. Defaults include no-sandbox flags. |
 | `SESSION_RESTART_ON_AUTH_FAIL` | Restart sessions on auth failure. |
 | `SESSION_RECONNECT_INTERVAL` | Reconnect interval in milliseconds. |
 | `SESSION_MAX_RECONNECT_ATTEMPTS` | Max reconnect attempts. |
@@ -175,7 +174,7 @@ Meta webhook: http://<host>:7834/webhooks/whatsapp
 | `POST` | `/api/sessions/{id}/read` | Mark chat/message read. |
 | `GET` | `/api/sessions/messages/history` | Query persisted message history. |
 | `GET` | `/api/sessions/{id}/conversations/{phone}` | Get stored conversation with a phone. |
-| `GET/POST` | `/api/webhooks` | List/create outbound webhooks. |
+| `GET/POST` | `/api/webhooks` | List/create outbound webhooks. **Creating requires `sessions`**. |
 | `GET/PUT/DELETE` | `/api/webhooks/{id}` | Manage outbound webhook. |
 | `POST` | `/api/webhooks/{id}/test` | Send test payload to webhook. |
 | `GET` | `/api/webhooks/logs` | Query webhook delivery logs. |
@@ -186,9 +185,23 @@ Meta webhook: http://<host>:7834/webhooks/whatsapp
 
 ---
 
-## 5. Internal Mode Canonical Flow
+## 5. Three Event Channels — You Don't Need Webhooks
 
-Use this when the user wants WhatsApp Web QR login, multi-session automation, or group access not available through WABA.
+Wahuy provides three independent ways to receive events. **You do NOT need outbound webhooks to get events.** Choose what fits your architecture:
+
+| Channel | Protocol | Best for | Requires |
+|---------|----------|----------|----------|
+| **WebSocket** | Socket.IO persistent | Bots, dashboards, realtime apps | API key + WS client |
+| **REST History** | HTTP GET polling | Cron jobs, reports, backups | API key |
+| **Outbound Webhooks** | HTTP POST to your URL | Serverless functions, Zapier, external monitoring | API key (to register) |
+
+For 90% of use cases, WebSocket + REST is sufficient. Webhooks are only needed when your receiver cannot maintain a persistent connection.
+
+---
+
+## 6. Internal Mode Canonical Flow
+
+Use this when the user wants WhatsApp WebSocket QR login, multi-session automation, or group access not available through WABA.
 
 ### Step 1: Create a session
 
@@ -206,18 +219,14 @@ curl -X POST http://localhost:7834/api/sessions/main/start \
   -H "X-API-Key: <key>"
 ```
 
-### Step 3: Fetch and scan QR
+### Step 3: Get QR code
 
 ```bash
-# JSON data URL
+# JSON data URL (base64 PNG)
 curl http://localhost:7834/api/sessions/main/qr \
   -H "X-API-Key: <key>"
 
-# PNG image
-curl http://localhost:7834/api/sessions/main/qr \
-  -H "X-API-Key: <key>" \
-  -H "Accept: image/png" \
-  --output qr.png
+# Or watch it via WebSocket in realtime
 ```
 
 ### Step 4: Poll until ready
@@ -253,14 +262,13 @@ Recipient formats:
 
 | Format | Example | Meaning |
 |--------|---------|---------|
-| Phone | `6281234567890` | Auto-normalized to WhatsApp JID. |
-| Classic JID | `6281234567890@c.us` | Direct personal chat JID. |
-| LID | `6281234567890@lid` | Newer WhatsApp linked ID. |
-| Group JID | `123456789@g.us` | Group chat. |
+| Phone | `6281234567890` | Auto-normalized to WhatsApp JID `@s.whatsapp.net`. |
+| Full JID | `6281234567890@s.whatsapp.net` | Preserved as-is. |
+| Group JID | `123456789@g.us` | Group chat (Baileys format). |
 
 ---
 
-## 6. Official Mode Canonical Flow
+## 7. Official Mode Canonical Flow
 
 Use this when the user has Meta WhatsApp Business credentials and wants production-grade Cloud API behavior.
 
@@ -328,14 +336,25 @@ curl -X POST http://localhost:7834/v1/messages \
 
 ---
 
-## 7. Webhooks
+## 8. Webhooks
 
 There are two webhook concepts:
 
 1. **Meta webhook receiver** — `/webhooks/whatsapp`, used only in Official mode.
 2. **Outbound webhooks** — configured through `/api/webhooks`, used to forward Wahuy events to your app.
 
-### Register outbound webhook
+### Outbound webhook security model
+
+⛔ **`sessions` is mandatory.** The API rejects webhook creation without it.
+
+| `sessions` value | Behavior |
+|-----------------|----------|
+| `["*"]` | Receive events from **all** sessions. |
+| `["main"]` | Only receive events from session `main`. |
+| `["main", "sec"]` | Only receive events from those two sessions. |
+| `[]` or missing | **Rejected (400)** — must be explicit. |
+
+### Register outbound webhook (all sessions)
 
 ```bash
 curl -X POST http://localhost:7834/api/webhooks \
@@ -344,12 +363,55 @@ curl -X POST http://localhost:7834/api/webhooks \
   -d '{
     "url":"https://your-app.example.com/whatsapp/events",
     "events":["message.received","message.sent","message.ack","session.ready","session.disconnected"],
-    "sessions":["main"],
+    "sessions":["*"],
     "secret":"optional-hmac-secret"
   }'
 ```
 
-If `secret` is set, verify the HMAC signature in your receiver. Do not trust unauthenticated inbound webhook payloads.
+### Register for specific sessions only
+
+```bash
+curl -X POST http://localhost:7834/api/webhooks \
+  -H "X-API-Key: <key>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url":"https://your-app.example.com/whatsapp/events",
+    "events":["message.received","message.sent"],
+    "sessions":["support","sales"],
+    "secret":"optional-hmac-secret"
+  }'
+```
+
+### Webhook payload format
+
+```json
+{
+  "event": "message.received",
+  "timestamp": "2026-01-15T10:30:00.000Z",
+  "session": { "id": "main", "phone": null },
+  "payload": {
+    "id": "BAE5...",
+    "from": "6281234567890@s.whatsapp.net",
+    "body": "Hello!",
+    "type": "chat",
+    "fromMe": false,
+    "hasMedia": false,
+    "contacts": { "sender": {...}, "receiver": {...} }
+  }
+}
+```
+
+### Verify webhook signatures
+
+If `secret` is set on the webhook, verify `X-Webhook-Signature` in your receiver:
+
+```js
+const crypto = require('crypto');
+function verify(payload, signature, secret) {
+  const hmac = crypto.createHmac('sha256', secret).update(JSON.stringify(payload)).digest('hex');
+  return 'sha256=' + hmac === signature;
+}
+```
 
 ### Common event names
 
@@ -367,9 +429,9 @@ If `secret` is set, verify the HMAC signature in your receiver. Do not trust una
 
 ---
 
-## 8. WebSocket Realtime Flow
+## 9. WebSocket Realtime Flow
 
-Use Socket.IO for QR/status/message updates.
+Use Socket.IO for QR/status/message updates. **This is the recommended way to receive events for most apps** — no webhook needed.
 
 ```js
 import { io } from 'socket.io-client';
@@ -380,15 +442,17 @@ const socket = io('http://localhost:7834', {
 
 socket.emit('subscribe', { sessions: ['*'] });
 
-socket.on('session:qr', (event) => console.log('QR', event));
+socket.on('session:qr', (event) => console.log('QR ready', event.sessionId));
 socket.on('session:status', (event) => console.log('Status', event));
-socket.on('message:received', (event) => console.log('Incoming', event));
-socket.on('message:sent', (event) => console.log('Sent', event));
+socket.on('message:received', (event) => console.log('Incoming', event.message));
+socket.on('message:sent', (event) => console.log('Sent', event.message));
 ```
+
+The QR is also available via REST fallback (`GET /api/sessions/:id/qr`) — the dashboard polls this automatically if WebSocket hasn't delivered it yet.
 
 ---
 
-## 9. Message History
+## 10. Message History
 
 Wahuy stores message history in SQLite under `STORAGE_PATH`.
 
@@ -422,9 +486,9 @@ curl "http://localhost:7834/api/sessions/main/conversations/6281234567890?limit=
 
 ---
 
-## 10. Error Handling Rules
+## 11. Error Handling Rules
 
-Wahuy generally returns either:
+Wahuy returns either:
 
 ### Internal API error shape
 
@@ -452,27 +516,28 @@ Official `/v1/*` routes mirror Meta-style errors:
 }
 ```
 
-Agent behavior:
+### Agent behavioral rules
 
 - Do not send messages until Internal session status is `ready`.
 - Treat `SESSION_NOT_FOUND` as setup missing; create/start session first.
 - Treat `SESSION_NOT_READY` as QR/auth/connectivity not complete; poll status.
 - Treat Official `APIException`/Meta errors as upstream provider issues; check Meta token, phone number ID, template approval, and recipient validity.
 - Never silently retry message sends without idempotency considerations; WhatsApp sends may be duplicated.
+- **Webhook creation without `sessions` is rejected (400)** — always include `["*"]` or specific session IDs.
 
 ---
 
-## 11. Canonical Integration Recipes
+## 12. Canonical Integration Recipes
 
 ### Build a simple notification sender using Internal mode
 
 ```text
 1. Ensure Wahuy is running with PROVIDER=internal.
 2. Create session `main`.
-3. Start session and scan QR.
+3. Start session, get QR, scan with WhatsApp.
 4. Poll `/api/sessions/main/status` until `ready`.
 5. Send notifications via `POST /api/sessions/main/messages/send`.
-6. Register webhook if the app needs inbound message events.
+6. Optionally: connect WebSocket for realtime delivery status.
 ```
 
 ### Build a production WABA sender using Official mode
@@ -482,23 +547,32 @@ Agent behavior:
 2. Run Wahuy with PROVIDER=official and official env vars.
 3. Configure Meta webhook URL to `https://your-domain.com/webhooks/whatsapp`.
 4. Send messages via `/v1/messages` using Meta-compatible payloads.
-5. Receive inbound messages/statuses through outbound webhooks or app-specific receiver.
+5. Receive inbound messages/statuses through outbound webhooks or WebSocket.
 ```
 
-### Build an inbound automation bot
+### Build an inbound automation bot (WebSocket approach)
 
 ```text
-1. Register outbound webhook with `message.received`.
-2. Validate webhook signature if `secret` is configured.
-3. Parse `sessionId`, sender, body, and quoted message fields.
+1. Connect WebSocket with API key.
+2. Subscribe to `message.received`.
+3. Parse sender, body, sessionId.
 4. Generate response in your app.
 5. Send reply via Internal `/api/sessions/{id}/messages/reply` or Official `/v1/messages`.
-6. Store your own idempotency key using Wahuy message IDs to avoid duplicate processing.
+6. Store message IDs to avoid duplicate processing.
+```
+
+### Add external logging/monitoring (Webhook approach)
+
+```text
+1. POST /api/webhooks with sessions: ["*"], events: ["message.received", "message.sent"].
+2. Your logging service receives HTTP POST with payload.
+3. Optionally verify X-Webhook-Signature with shared secret.
+4. No API key exposure — your logging service never sees Wahuy's credentials.
 ```
 
 ---
 
-## 12. Repository Files (for code-level understanding)
+## 13. Repository Files (for code-level understanding)
 
 All files are under `https://github.com/utsmannn/wahuy`. Fetch them raw via `https://raw.githubusercontent.com/utsmannn/wahuy/main/<path>`.
 
@@ -514,18 +588,19 @@ All files are under `https://github.com/utsmannn/wahuy`. Fetch them raw via `htt
 | 8 | `src/api/routes/sessions.ts` | Internal session lifecycle, QR, chats, groups. |
 | 9 | `src/api/routes/messages.ts` | Internal message send/history endpoints. |
 | 10 | `src/api/routes/provider.ts` | Runtime provider switch/test and Official templates. |
-| 11 | `src/api/routes/webhooks.ts` | Outbound webhook CRUD and delivery logs. |
+| 11 | `src/api/routes/webhooks.ts` | Outbound webhook CRUD + session validation. |
 | 12 | `src/api/routes/whatsapp-official/*` | Official Cloud API-compatible routes. |
 | 13 | `src/providers/types.ts` | Shared provider interfaces and message types. |
-| 14 | `src/core/SessionManager.ts` | Internal session orchestration. |
-| 15 | `src/core/WebhookDispatcher.ts` | Outbound webhook dispatch, retry, HMAC. |
-| 16 | `src/storage/MessageStorage.ts` | SQLite message persistence. |
-| 17 | `docker-compose.yml` | Local/container deployment composition. |
-| 18 | `docker/Dockerfile` | Production image build. |
+| 14 | `src/core/SessionManager.ts` | Internal session orchestration (Baileys-based). |
+| 15 | `src/core/WhatsAppClient.ts` | Baileys client wrapper — WebSocket connection, QR, messaging. |
+| 16 | `src/core/WebhookDispatcher.ts` | Outbound webhook dispatch, retry, HMAC, session filtering. |
+| 17 | `src/storage/MessageStorage.ts` | SQLite message persistence. |
+| 18 | `docker-compose.yml` | Local/container deployment composition. |
+| 19 | `docker/Dockerfile` | Production image build (~350MB, no Chromium). |
 
 ---
 
-## 13. Tech Stack
+## 14. Tech Stack
 
 | Component | Technology |
 |-----------|------------|
@@ -533,21 +608,21 @@ All files are under `https://github.com/utsmannn/wahuy`. Fetch them raw via `htt
 | Language | TypeScript ESM |
 | HTTP Server | Fastify |
 | Realtime | Socket.IO |
-| Internal Provider | `whatsapp-web.js` + Chromium/Puppeteer |
+| Internal Provider | `@whiskeysockets/baileys` (WebSocket, no browser) |
 | Official Provider | Meta Graph API / WhatsApp Cloud API |
 | Storage | File storage + SQLite (`better-sqlite3`) |
 | Dashboard | React + Vite |
-| Validation | Zod where used, route-level validation elsewhere |
-| Tests | Vitest |
-| Container | Docker |
+| Container | Docker (~350MB) |
 
 ---
 
-## 14. Safety and Product Constraints
+## 15. Safety and Product Constraints
 
-- Internal mode is unofficial WhatsApp Web automation. Warn users about disconnect and ban risk.
+- Internal mode is unofficial WhatsApp WebSocket automation via Baileys. Warn users about disconnect and ban risk.
 - Official mode is preferred for production messaging if WABA is available.
+- **Outbound webhook `sessions` is mandatory** — never create a webhook without explicit `["*"]` or session IDs. Empty sessions cause the API to reject the request. This prevents accidental cross-session data leaks.
 - Do not expose Wahuy publicly without HTTPS and a strong API key.
-- Do not log or reveal Meta tokens, app secrets, API keys, QR strings, or session files.
+- Do not log or reveal Meta tokens, app secrets, API keys, QR strings, or session auth files.
 - Do not delete `data/` unless the user explicitly wants to reset sessions/history.
 - Message sends can be duplicated on retries; build idempotency in the caller when reliability matters.
+- Legacy webhooks with empty sessions are auto-migrated to `["*"]` on startup for backward compatibility.

@@ -82,13 +82,6 @@ export const config = {
     format: getEnv('LOG_FORMAT', 'pretty') as 'json' | 'pretty'
   },
 
-  // Puppeteer (optional)
-  puppeteer: {
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
-    headless: getEnvBoolean('PUPPETEER_HEADLESS', true),
-    args: getEnvArray('PUPPETEER_ARGS', ['--no-sandbox', '--disable-setuid-sandbox'])
-  },
-
   // Provider Selection
   provider: getEnv('PROVIDER', 'internal') as 'internal' | 'official',
 

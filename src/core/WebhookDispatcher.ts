@@ -39,8 +39,14 @@ export class WebhookDispatcher extends EventEmitter {
     logger.info({ count: storedWebhooks.length }, 'Loading webhooks from storage');
 
     for (const stored of storedWebhooks) {
+      // Migrate legacy webhooks: empty sessions → ["*"] (was old "broadcast all" behavior)
+      const sessions = stored.sessions && stored.sessions.length > 0
+        ? stored.sessions
+        : ['*'];
+
       this.webhooks.set(stored.id, {
         ...stored,
+        sessions,
         stats: { totalSent: 0, totalFailed: 0 }
       });
     }
@@ -147,9 +153,14 @@ export class WebhookDispatcher extends EventEmitter {
 
       if (!eventMatches) continue;
 
-      // Check if session matches (empty = all sessions)
-      if (webhook.sessions && webhook.sessions.length > 0) {
-        if (!webhook.sessions.includes(sessionId)) continue;
+      // Session filter: ["*"] = all sessions, [] = nothing (must be explicit)
+      if (!webhook.sessions || webhook.sessions.length === 0) {
+        // No sessions configured → skip (safety: don't broadcast without explicit opt-in)
+        logger.warn({ webhookId: webhook.id, sessionId }, 'Webhook has no sessions configured, skipping dispatch');
+        continue;
+      }
+      if (!webhook.sessions.includes('*') && !webhook.sessions.includes(sessionId)) {
+        continue;
       }
 
       // Add to queue

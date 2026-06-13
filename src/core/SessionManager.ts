@@ -1,29 +1,21 @@
 /**
  * Session Manager
  *
- * Orchestrates multiple WhatsApp client sessions.
+ * Orchestrates multiple WhatsApp client sessions (Baileys-based).
  */
 
 import { EventEmitter } from 'events';
 import { WhatsAppClient } from './WhatsAppClient.js';
 import { logger } from '../utils/logger.js';
 import { storage } from '../storage/index.js';
-import { config } from '../config.js';
-import fs from 'fs';
-import path from 'path';
 import type { SessionInfo } from '../types/session.js';
 
 export class SessionManager extends EventEmitter {
   private sessions: Map<string, WhatsAppClient> = new Map();
   private initialized = false;
 
-  constructor() {
-    super();
-  }
+  constructor() { super(); }
 
-  /**
-   * Initialize manager and load sessions from storage
-   */
   async initialize(): Promise<void> {
     if (this.initialized) return;
 
@@ -31,7 +23,6 @@ export class SessionManager extends EventEmitter {
     logger.info({ count: storedSessions.length }, 'Loading sessions from storage');
 
     for (const stored of storedSessions) {
-      // Create client but don't start it
       const client = new WhatsAppClient(stored.id, stored.name);
       this.setupClientEvents(client, stored.id);
       this.sessions.set(stored.id, client);
@@ -41,9 +32,6 @@ export class SessionManager extends EventEmitter {
     logger.info('SessionManager initialized');
   }
 
-  /**
-   * Setup event forwarding for a client
-   */
   private setupClientEvents(client: WhatsAppClient, id: string): void {
     client.on('qr', (qr) => this.emit('session:qr', { sessionId: id, qr }));
     client.on('authenticated', () => this.emit('session:authenticated', { sessionId: id }));
@@ -58,230 +46,78 @@ export class SessionManager extends EventEmitter {
     client.on('message_ack', (data) => this.emit('message:ack', { sessionId: id, ...data }));
   }
 
-  /**
-   * Create a new session
-   */
   async createSession(id: string, name?: string): Promise<SessionInfo> {
-    if (this.sessions.has(id)) {
-      throw new Error(`Session '${id}' already exists`);
-    }
+    if (this.sessions.has(id)) throw new Error(`Session '${id}' already exists`);
 
     const client = new WhatsAppClient(id, name);
     this.setupClientEvents(client, id);
     this.sessions.set(id, client);
 
-    // Save to storage
-    await storage.saveSession({
-      id,
-      name: name ?? id,
-      createdAt: new Date().toISOString()
-    });
-
+    await storage.saveSession({ id, name: name ?? id, createdAt: new Date().toISOString() });
     logger.info({ sessionId: id }, 'Session created');
 
-    return {
-      id,
-      name: name ?? id,
-      status: 'created',
-      createdAt: new Date().toISOString()
-    };
+    return { id, name: name ?? id, status: 'created', createdAt: new Date().toISOString() };
   }
 
-  /**
-   * Get session by ID
-   */
-  getSession(id: string): WhatsAppClient | undefined {
-    return this.sessions.get(id);
-  }
+  getSession(id: string): WhatsAppClient | undefined { return this.sessions.get(id); }
 
-  /**
-   * List all sessions
-   */
   listSessions(): SessionInfo[] {
-    const result: SessionInfo[] = [];
-    for (const client of this.sessions.values()) {
-      result.push(client.getInfo());
-    }
-    return result;
+    return Array.from(this.sessions.values()).map(c => c.getInfo());
   }
 
-  /**
-   * Clear Chrome lock files for a session
-   * This fixes "profile appears to be in use by another Chromium process" error
-   */
-  private clearChromeLocks(sessionId: string): void {
-    const sessionPath = path.join(config.storage.path, 'sessions', `session-${sessionId}`);
-    logger.info({ sessionId, sessionPath, storagePath: config.storage.path }, 'Clearing Chrome locks...');
-
-    if (!fs.existsSync(sessionPath)) {
-      logger.warn({ sessionId, sessionPath }, 'Session path does not exist, skipping lock clearing');
-      return;
-    }
-
-    try {
-      // Remove Singleton files from session root
-      const singletonFiles = ['SingletonLock', 'SingletonCookie', 'SingletonSocket'];
-      for (const file of singletonFiles) {
-        const filePath = path.join(sessionPath, file);
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-          logger.debug({ sessionId, file }, 'Removed Chrome lock file');
-        }
-      }
-
-      // Remove any .lock files from session root
-      const files = fs.readdirSync(sessionPath);
-      for (const file of files) {
-        if (file.endsWith('.lock')) {
-          fs.unlinkSync(path.join(sessionPath, file));
-          logger.debug({ sessionId, file }, 'Removed lock file');
-        }
-      }
-
-      // Remove Singleton files from Default folder (Chrome profile)
-      const defaultPath = path.join(sessionPath, 'Default');
-      if (fs.existsSync(defaultPath)) {
-        for (const file of singletonFiles) {
-          const filePath = path.join(defaultPath, file);
-          if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
-            logger.debug({ sessionId, file: `Default/${file}` }, 'Removed Chrome lock file from Default');
-          }
-        }
-
-        // Remove any .lock files from Default folder
-        const defaultFiles = fs.readdirSync(defaultPath);
-        for (const file of defaultFiles) {
-          if (file.endsWith('.lock')) {
-            fs.unlinkSync(path.join(defaultPath, file));
-            logger.debug({ sessionId, file: `Default/${file}` }, 'Removed lock file from Default');
-          }
-        }
-      }
-
-      // Count remaining lock files
-      const remainingLocks = [
-        ...singletonFiles.filter(f => fs.existsSync(path.join(sessionPath, f))),
-        ...singletonFiles.filter(f => fs.existsSync(path.join(defaultPath, f)))
-      ];
-
-      if (remainingLocks.length > 0) {
-        logger.warn({ sessionId, remainingLocks }, 'Some lock files still exist after clearing');
-      } else {
-        logger.info({ sessionId }, 'Cleared Chrome lock files');
-      }
-    } catch (error) {
-      logger.warn({ sessionId, error }, 'Failed to clear some Chrome lock files');
-    }
-  }
-
-  /**
-   * Start a session
-   */
   async startSession(id: string): Promise<void> {
     const client = this.sessions.get(id);
-    if (!client) {
-      throw new Error(`Session '${id}' not found`);
-    }
-
-    // Clear Chrome locks before starting
-    this.clearChromeLocks(id);
-
+    if (!client) throw new Error(`Session '${id}' not found`);
     this.emit('session:status', { sessionId: id, status: 'starting' });
     await client.start();
   }
 
-  /**
-   * Stop a session
-   */
   async stopSession(id: string): Promise<void> {
     const client = this.sessions.get(id);
-    if (!client) {
-      throw new Error(`Session '${id}' not found`);
-    }
+    if (!client) throw new Error(`Session '${id}' not found`);
     await client.stop();
     this.emit('session:status', { sessionId: id, status: 'stopped' });
   }
 
-  /**
-   * Delete a session
-   */
   async deleteSession(id: string): Promise<void> {
     const client = this.sessions.get(id);
-    if (!client) {
-      throw new Error(`Session '${id}' not found`);
-    }
-
+    if (!client) throw new Error(`Session '${id}' not found`);
     await client.destroy();
     this.sessions.delete(id);
-
-    // Remove from storage
     await storage.deleteSession(id);
-
     logger.info({ sessionId: id }, 'Session deleted');
   }
 
-  /**
-   * Get QR code for a session
-   */
   getQRCode(id: string): string | null {
     const client = this.sessions.get(id);
-    if (!client) {
-      throw new Error(`Session '${id}' not found`);
-    }
+    if (!client) throw new Error(`Session '${id}' not found`);
     return client.getQRCode();
   }
 
-  /**
-   * Logout a session
-   */
   async logoutSession(id: string): Promise<void> {
     const client = this.sessions.get(id);
-    if (!client) {
-      throw new Error(`Session '${id}' not found`);
-    }
+    if (!client) throw new Error(`Session '${id}' not found`);
     await client.logout();
     logger.info({ sessionId: id }, 'Session logged out');
   }
 
-  /**
-   * Get session statistics
-   */
   getStats(): { total: number; connected: number; disconnected: number } {
-    let connected = 0;
-    let disconnected = 0;
-
+    let connected = 0, disconnected = 0;
     for (const client of this.sessions.values()) {
-      const status = client.getStatus();
-      if (status === 'ready' || status === 'connected') {
-        connected++;
-      } else if (status === 'disconnected' || status === 'stopped') {
-        disconnected++;
-      }
+      const s = client.getStatus();
+      if (s === 'ready' || s === 'connected') connected++;
+      else if (s === 'disconnected' || s === 'stopped') disconnected++;
     }
-
-    return {
-      total: this.sessions.size,
-      connected,
-      disconnected
-    };
+    return { total: this.sessions.size, connected, disconnected };
   }
 
-  /**
-   * Shutdown all sessions
-   */
   async shutdown(): Promise<void> {
     logger.info('Shutting down all sessions...');
     for (const [id, client] of this.sessions) {
-      try {
-        await client.destroy();
-      } catch (error) {
-        logger.error({ sessionId: id, error }, 'Failed to destroy session');
-      }
+      try { await client.destroy(); } catch (e) { logger.error({ sessionId: id, error: e }, 'Failed to destroy'); }
     }
     this.sessions.clear();
   }
 }
 
-// Singleton instance
 export const sessionManager = new SessionManager();

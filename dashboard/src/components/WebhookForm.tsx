@@ -1,156 +1,171 @@
-import { useState } from 'react';
-import { X, Check } from 'lucide-react';
-import type { Webhook } from '../types';
+import { useState, useEffect } from 'react';
+import { X, Check, Loader2 } from 'lucide-react';
+import { api } from '../lib/api';
+import type { Webhook, Session } from '../types';
 
-interface WebhookFormProps {
-  webhook?: Webhook;
-  isOpen: boolean;
-  onClose: () => void;
-  onSave: (data: Partial<Webhook>) => void;
-}
+interface WebhookFormProps { webhook?: Webhook; isOpen: boolean; onClose: () => void; onSave: (data: Partial<Webhook>) => void; }
 
-const eventOptions = [
-  { value: '*', label: 'All Events' },
-  { value: 'message.received', label: 'Message Received' },
-  { value: 'message.sent', label: 'Message Sent' },
-  { value: 'message.ack', label: 'Message ACK' },
-  { value: 'session.qr', label: 'Session QR' },
-  { value: 'session.authenticated', label: 'Session Authenticated' },
-  { value: 'session.ready', label: 'Session Ready' },
-  { value: 'session.disconnected', label: 'Session Disconnected' },
+const events = [
+  { v: 'message.received', l: 'Message Received' },
+  { v: 'message.sent', l: 'Message Sent' },
+  { v: 'message.ack', l: 'Message ACK' },
+  { v: 'session.qr_updated', l: 'Session QR' },
+  { v: 'session.authenticated', l: 'Auth OK' },
+  { v: 'session.ready', l: 'Session Ready' },
+  { v: 'session.disconnected', l: 'Disconnected' },
+  { v: 'session.reconnecting', l: 'Reconnecting' },
+  { v: 'session.failed', l: 'Session Failed' },
 ];
 
 export function WebhookForm({ webhook, isOpen, onClose, onSave }: WebhookFormProps) {
   const [url, setUrl] = useState(webhook?.url || '');
-  const [events, setEvents] = useState<string[]>(webhook?.events || ['*']);
+  const [selected, setSelected] = useState<string[]>(webhook?.events || ['*']);
   const [secret, setSecret] = useState(webhook?.secret || '');
   const [active, setActive] = useState(webhook?.active ?? true);
+  const [allSessions, setAllSessions] = useState(webhook?.sessions?.includes('*') || (!webhook?.sessions?.length));
+  const [selectedSessions, setSelectedSessions] = useState<string[]>(webhook?.sessions?.filter(s => s !== '*') || []);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (isOpen) {
+      loadSessions();
+    }
+  }, [isOpen]);
+
+  const loadSessions = async () => {
+    setLoadingSessions(true);
+    try {
+      const res = await api.getSessions();
+      setSessions(res.data || []);
+    } catch { /* ignore */ }
+    finally { setLoadingSessions(false); }
+  };
 
   if (!isOpen) return null;
 
+  const toggleEvent = (e: string) => {
+    if (e === '*') { setSelected(['*']); return; }
+    const rest = selected.filter(x => x !== '*');
+    setSelected(rest.includes(e) ? rest.filter(x => x !== e) : [...rest, e]);
+  };
+
+  const toggleSession = (id: string) => {
+    setAllSessions(false);
+    setSelectedSessions(prev => prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]);
+  };
+
+  const handleAllSessions = () => {
+    setAllSessions(true);
+    setSelectedSessions([]);
+    setError('');
+  };
+
+  const buildSessions = (): string[] => {
+    if (allSessions) return ['*'];
+    return selectedSessions;
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({ url, events, secret: secret || undefined, active });
+    const sessionsVal = buildSessions();
+
+    // Validate: must pick at least one session or "*"
+    if (sessionsVal.length === 0) {
+      setError('Select at least one session or "All sessions".');
+      return;
+    }
+
+    onSave({ url, events: selected, secret: secret || undefined, active, sessions: sessionsVal });
     onClose();
   };
 
-  const toggleEvent = (event: string) => {
-    if (event === '*') {
-      setEvents(['*']);
-    } else {
-      const newEvents = events.filter(e => e !== '*');
-      if (newEvents.includes(event)) {
-        setEvents(newEvents.filter(e => e !== event));
-      } else {
-        setEvents([...newEvents, event]);
-      }
-    }
-  };
-
   return (
-    <div className="fixed inset-0 bg-neutral-900/40 dark:bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-50 p-6 font-sans">
-      <div className="bg-white dark:bg-neutral-900 rounded-[2.5rem] border border-neutral-200 dark:border-neutral-800 p-10 w-full max-w-xl shadow-2xl dark:shadow-none animate-in fade-in zoom-in-95 duration-300">
-        <div className="flex justify-between items-center mb-10">
-          <div>
-            <h2 className="text-2xl font-black tracking-tight text-neutral-900 dark:text-white">{webhook ? 'Modify' : 'New'} Webhook</h2>
-            <p className="text-xs text-neutral-400 dark:text-neutral-500 font-bold uppercase tracking-widest mt-1">Event Forwarding</p>
-          </div>
-          <button onClick={onClose} className="w-10 h-10 flex items-center justify-center text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-50 dark:hover:bg-neutral-800 rounded-xl transition-all">
-            <X size={20} />
-          </button>
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-6 w-full max-w-md shadow-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold">{webhook ? 'Edit Webhook' : 'New Webhook'}</h3>
+          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"><X size={18} /></button>
         </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">URL <span className="text-red-400">*</span></label>
+            <input type="url" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://..."
+              className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-400" required />
+          </div>
 
-        <form onSubmit={handleSubmit} className="space-y-8">
-          <div className="space-y-6">
-            <div>
-              <label className="block text-[11px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-widest mb-3 px-1">
-                Endpoint URL
+          {/* Session Selector */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              Sessions <span className="text-red-400">*</span>
+              <span className="text-gray-400 font-normal ml-1">— which sessions trigger this webhook</span>
+            </label>
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-2 space-y-1 max-h-40 overflow-y-auto">
+              {/* All sessions toggle */}
+              <label className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${allSessions ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
+                <input type="radio" checked={allSessions} onChange={handleAllSessions} className="hidden" />
+                {allSessions ? <Check size={12} /> : <span className="w-3 h-3 border border-gray-300 dark:border-gray-600 rounded-full" />}
+                <span className="text-xs font-medium">All sessions</span>
               </label>
-              <input
-                type="url"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://api.yourdomain.com/webhooks/whatsapp"
-                required
-                className="w-full px-5 py-4 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-2xl focus:outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-white focus:border-neutral-900 dark:focus:border-white focus:bg-white dark:focus:bg-neutral-800 transition-all text-sm font-medium text-neutral-900 dark:text-white"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-widest mb-3 px-1">
-                Event Subscription
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {eventOptions.map(option => (
-                  <label
-                    key={option.value}
-                    className={`flex items-center gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
-                      events.includes(option.value)
-                        ? 'border-neutral-900 dark:border-white bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 shadow-md'
-                        : 'border-neutral-100 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/50 hover:border-neutral-200 dark:hover:border-neutral-700 text-neutral-500 dark:text-neutral-400'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={events.includes(option.value)}
-                      onChange={() => toggleEvent(option.value)}
-                      className="hidden"
-                    />
-                    {events.includes(option.value) ? (
-                      <Check size={14} className="text-white dark:text-neutral-900" />
-                    ) : (
-                      <div className="w-3.5 h-3.5 border border-neutral-200 dark:border-neutral-700 rounded-sm bg-white dark:bg-neutral-900" />
-                    )}
-                    <span className="text-[11px] font-black uppercase tracking-wider">{option.label}</span>
+              <hr className="border-gray-100 dark:border-gray-800" />
+              {loadingSessions ? (
+                <div className="flex items-center gap-2 px-2 py-2 text-xs text-gray-400"><Loader2 size={12} className="animate-spin" />Loading...</div>
+              ) : sessions.length === 0 ? (
+                <div className="px-2 py-2 text-xs text-gray-400">No sessions yet</div>
+              ) : (
+                sessions.map(s => (
+                  <label key={s.id} className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${!allSessions && selectedSessions.includes(s.id) ? 'bg-gray-100 dark:bg-gray-800' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
+                    <input type="checkbox" checked={!allSessions && selectedSessions.includes(s.id)} onChange={() => toggleSession(s.id)} className="hidden" />
+                    {!allSessions && selectedSessions.includes(s.id) ? <Check size={12} /> : <span className="w-3 h-3 border border-gray-300 dark:border-gray-600 rounded-sm" />}
+                    <span className="text-xs">{s.name || s.id}</span>
+                    {s.phone && <span className="text-[10px] text-gray-400">{s.phone}</span>}
+                    <span className={`ml-auto w-1.5 h-1.5 rounded-full ${s.status === 'ready' ? 'bg-green-500' : 'bg-gray-300'}`} />
                   </label>
-                ))}
-              </div>
+                ))
+              )}
             </div>
+            {error && <p className="text-red-500 text-xs mt-1">{error}</p>}
+            <p className="text-[10px] text-gray-400 mt-1">Pick specific sessions or "All sessions". Events only fire from selected sessions.</p>
+          </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-[11px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-widest mb-3 px-1">
-                  Signature Secret
-                </label>
-                <input
-                  type="text"
-                  value={secret}
-                  onChange={(e) => setSecret(e.target.value)}
-                  placeholder="HMAC SHA-256 Key"
-                  className="w-full px-5 py-4 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-2xl focus:outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-white focus:border-neutral-900 dark:focus:border-white focus:bg-white dark:focus:bg-neutral-800 transition-all text-sm font-mono placeholder-neutral-200 dark:placeholder-neutral-700 text-neutral-900 dark:text-white"
-                />
-              </div>
-              <div className="flex flex-col justify-end">
-                <label className="flex items-center gap-4 p-4 bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-100 dark:border-neutral-800 rounded-2xl cursor-pointer group">
-                  <div className={`w-10 h-6 rounded-full p-1 transition-colors ${active ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.3)]' : 'bg-neutral-200 dark:bg-neutral-700'}`}>
-                    <div className={`w-4 h-4 bg-white rounded-full transition-transform ${active ? 'translate-x-4' : 'translate-x-0'}`} />
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={active}
-                    onChange={(e) => setActive(e.target.checked)}
-                    className="hidden"
-                  />
-                  <span className="text-xs font-bold text-neutral-900 dark:text-neutral-100 uppercase tracking-widest">Active State</span>
-                </label>
-              </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Events</label>
+            <div className="grid grid-cols-2 gap-1.5">
+              {events.map(ev => (
+                <button key={ev.v} type="button" onClick={() => toggleEvent(ev.v)}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    selected.includes(ev.v) ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900' : 'border border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'
+                  }`}>
+                  {selected.includes(ev.v) ? <Check size={12} /> : <span className="w-3 h-3 border border-gray-300 dark:border-gray-600 rounded-sm" />}
+                  {ev.l}
+                </button>
+              ))}
             </div>
           </div>
 
-          <div className="flex gap-4 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 px-6 py-4 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-500 hover:text-neutral-900 dark:hover:text-white rounded-2xl font-bold text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-all uppercase tracking-widest"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="flex-1 px-6 py-4 bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 rounded-2xl font-bold text-sm hover:bg-neutral-800 dark:hover:bg-neutral-100 transition-all uppercase tracking-widest shadow-md"
-            >
-              {webhook ? 'Update Hook' : 'Confirm Hook'}
-            </button>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Secret (optional)</label>
+              <input type="text" value={secret} onChange={e => setSecret(e.target.value)} placeholder="HMAC key"
+                className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-400" />
+            </div>
+            <div className="flex items-end pb-0.5">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <div className={`w-9 h-5 rounded-full p-0.5 transition-colors ${active ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
+                  <div className={`w-4 h-4 bg-white rounded-full transition-transform ${active ? 'translate-x-4' : ''}`} />
+                </div>
+                <input type="checkbox" checked={active} onChange={e => setActive(e.target.checked)} className="hidden" />
+                <span className="text-xs font-medium">{active ? 'Active' : 'Paused'}</span>
+              </label>
+            </div>
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            <button type="button" onClick={onClose}
+              className="flex-1 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">Cancel</button>
+            <button type="submit"
+              className="flex-1 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-lg text-sm font-medium hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors">Save</button>
           </div>
         </form>
       </div>

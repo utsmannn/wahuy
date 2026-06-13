@@ -41,6 +41,7 @@
     "@fastify/swagger": "^8.14.0",
     "@fastify/swagger-ui": "^3.0.0",
     "@fastify/websocket": "^10.0.1",
+    "@whiskeysockets/baileys": "^7.0.0-rc13",
     "better-sqlite3": "^12.6.2",
     "dotenv": "^16.4.5",
     "fastify": "^4.26.2",
@@ -49,7 +50,6 @@
     "pino-pretty": "^11.0.0",
     "qrcode": "^1.5.4",
     "socket.io": "^4.7.4",
-    "whatsapp-web.js": "git+https://github.com/pedroslopez/whatsapp-web.js#main",
     "zod": "^3.22.4"
   },
   "devDependencies": {

@@ -14,401 +14,196 @@ interface SendMessageModalProps {
 type MessageType = 'text' | 'image' | 'document' | 'location' | 'template';
 
 export function SendMessageModal({ isOpen, onClose, sessionId, sessions, providerInfo }: SendMessageModalProps) {
-  const [messageType, setMessageType] = useState<MessageType>('text');
+  const [msgType, setMsgType] = useState<MessageType>('text');
   const [to, setTo] = useState('');
   const [text, setText] = useState('');
-  const [base64Data, setBase64Data] = useState('');
-  const [mimeType, setMimeType] = useState('');
-  const [filename, setFilename] = useState('');
+  const [base64, setBase64] = useState('');
+  const [mime, setMime] = useState('');
+  const [fname, setFname] = useState('');
   const [caption, setCaption] = useState('');
-  const [latitude, setLatitude] = useState('');
-  const [longitude, setLongitude] = useState('');
-  const [description, setDescription] = useState('');
-  const [selectedSession, setSelectedSession] = useState(sessionId);
+  const [lat, setLat] = useState('');
+  const [lng, setLng] = useState('');
+  const [desc, setDesc] = useState('');
+  const [selSession, setSelSession] = useState(sessionId);
   const [loading, setLoading] = useState(false);
 
-  // Template state
   const [templates, setTemplates] = useState<WhatsAppTemplate[]>([]);
-  const [loadingTemplates, setLoadingTemplates] = useState(false);
-  const [selectedTemplate, setSelectedTemplate] = useState<WhatsAppTemplate | null>(null);
-  const [templateVariables, setTemplateVariables] = useState<string[]>([]);
+  const [loadingTpl, setLoadingTpl] = useState(false);
+  const [selTpl, setSelTpl] = useState<WhatsAppTemplate | null>(null);
+  const [tplVars, setTplVars] = useState<string[]>([]);
 
   const isOfficial = providerInfo?.mode === 'official';
 
-  // Load templates when switching to template tab
   useEffect(() => {
-    if (messageType === 'template' && isOfficial && templates.length === 0) {
-      loadTemplates();
+    if (msgType === 'template' && isOfficial && templates.length === 0) {
+      setLoadingTpl(true);
+      api.getTemplates().then(r => setTemplates(r.data || [])).catch(() => {}).finally(() => setLoadingTpl(false));
     }
-  }, [messageType, isOfficial]);
-
-  const loadTemplates = async () => {
-    setLoadingTemplates(true);
-    try {
-      const res = await api.getTemplates();
-      setTemplates(res.data || []);
-    } catch (err) {
-      console.error('Failed to load templates:', err);
-    } finally {
-      setLoadingTemplates(false);
-    }
-  };
+  }, [msgType, isOfficial]);
 
   if (!isOpen) return null;
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base64 = (reader.result as string).split(',')[1];
-      setBase64Data(base64);
-      setMimeType(file.type);
-      setFilename(file.name);
-    };
-    reader.readAsDataURL(file);
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = () => { setBase64((r.result as string).split(',')[1]); setMime(f.type); setFname(f.name); };
+    r.readAsDataURL(f);
   };
 
-  const handleSelectTemplate = (template: WhatsAppTemplate) => {
-    setSelectedTemplate(template);
-    // Count body variables from template text
-    const bodyComponent = template.components?.find(c => c.type === 'BODY');
-    if (bodyComponent?.text) {
-      const matches = bodyComponent.text.match(/\{\{\d+\}\}/g);
-      const count = matches ? matches.length : 0;
-      setTemplateVariables(new Array(count).fill(''));
-    } else {
-      setTemplateVariables([]);
-    }
-  };
-
-  const updateVariable = (index: number, value: string) => {
-    setTemplateVariables(prev => {
-      const next = [...prev];
-      next[index] = value;
-      return next;
-    });
-  };
+  const reset = () => { setTo(''); setText(''); setBase64(''); setMime(''); setFname(''); setCaption(''); setLat(''); setLng(''); setDesc(''); setSelTpl(null); setTplVars([]); };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-
+    e.preventDefault(); setLoading(true);
     try {
-      let response;
-
-      switch (messageType) {
-        case 'text':
-          response = await api.sendMessage(selectedSession, to, text);
-          break;
-        case 'image':
-          response = await api.sendImage(selectedSession, to, base64Data, mimeType, caption, filename);
-          break;
-        case 'document':
-          response = await api.sendDocument(selectedSession, to, base64Data, mimeType, filename, caption);
-          break;
-        case 'location':
-          response = await api.sendLocation(selectedSession, to, parseFloat(latitude), parseFloat(longitude), description);
-          break;
+      let r;
+      switch (msgType) {
+        case 'text': r = await api.sendMessage(selSession, to, text); break;
+        case 'image': r = await api.sendImage(selSession, to, base64, mime, caption, fname); break;
+        case 'document': r = await api.sendDocument(selSession, to, base64, mime, fname, caption); break;
+        case 'location': r = await api.sendLocation(selSession, to, parseFloat(lat), parseFloat(lng), desc); break;
         case 'template':
-          if (!selectedTemplate) break;
-          response = await api.sendTemplate({
-            to,
-            templateName: selectedTemplate.name,
-            languageCode: selectedTemplate.language,
-            variables: templateVariables.filter(v => v.length > 0),
-          });
-          break;
+          if (!selTpl) break;
+          r = await api.sendTemplate({ to, templateName: selTpl.name, languageCode: selTpl.language, variables: tplVars.filter(v => v) }); break;
       }
-
-      if (response?.success) {
-        alert('Message sent successfully!');
-        onClose();
-        resetForm();
-      }
-    } catch (err) {
-      alert(`Error: ${(err as Error).message}`);
-    } finally {
-      setLoading(false);
-    }
+      if (r?.success) { alert('Sent!'); onClose(); reset(); }
+    } catch (err) { alert(`Error: ${(err as Error).message}`); }
+    finally { setLoading(false); }
   };
 
-  const resetForm = () => {
-    setTo('');
-    setText('');
-    setBase64Data('');
-    setMimeType('');
-    setFilename('');
-    setCaption('');
-    setLatitude('');
-    setLongitude('');
-    setDescription('');
-    setSelectedTemplate(null);
-    setTemplateVariables([]);
-  };
-
-  const messageTypes: Array<{ id: MessageType; label: string; icon: typeof MessageSquare; officialOnly?: boolean }> = [
+  const types: { id: MessageType; label: string; icon: typeof MessageSquare; officialOnly?: boolean }[] = [
     { id: 'text', label: 'Text', icon: MessageSquare },
     { id: 'template', label: 'Template', icon: LayoutTemplate, officialOnly: true },
     { id: 'image', label: 'Image', icon: Image },
-    { id: 'document', label: 'Document', icon: FileText },
+    { id: 'document', label: 'File', icon: FileText },
     { id: 'location', label: 'Location', icon: MapPin },
   ];
 
-  // Get preview of template body with variables filled in
-  const getTemplatePreview = () => {
-    if (!selectedTemplate) return '';
-    const bodyComponent = selectedTemplate.components?.find(c => c.type === 'BODY');
-    if (!bodyComponent?.text) return '';
-    let preview = bodyComponent.text;
-    templateVariables.forEach((val, i) => {
-      preview = preview.replace(`{{${i + 1}}}`, val || `{{${i + 1}}}`);
-    });
-    return preview;
-  };
-
   return (
-    <div className="fixed inset-0 bg-neutral-900/40 dark:bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-50 p-6 font-sans">
-      <div className="bg-white dark:bg-neutral-900 rounded-[2.5rem] border border-neutral-200 dark:border-neutral-800 w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl dark:shadow-none animate-in fade-in zoom-in-95 duration-300">
-        <div className="flex items-center justify-between p-8 border-b border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-900 sticky top-0 z-10 transition-colors">
-          <div>
-            <h3 className="text-2xl font-black tracking-tight text-neutral-900 dark:text-white">Transmit</h3>
-            <p className="text-[10px] font-bold text-neutral-400 dark:text-neutral-500 uppercase tracking-[0.2em] mt-1.5">Outbound Message Dispatch</p>
-          </div>
-          <button onClick={onClose} className="w-10 h-10 flex items-center justify-center text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-50 dark:hover:bg-neutral-800 rounded-xl transition-all">
-            <X size={22} />
-          </button>
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 w-full max-w-lg max-h-[90vh] flex flex-col shadow-lg">
+        <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-gray-800">
+          <h3 className="font-semibold">Send Message</h3>
+          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"><X size={18} /></button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-8 space-y-8 overflow-y-auto flex-1 scrollbar-hide">
-          {/* Session Selector (only for internal mode) */}
+        <form onSubmit={handleSubmit} className="p-4 space-y-4 overflow-y-auto flex-1">
           {!isOfficial && (
             <div>
-              <label className="block text-[11px] font-black text-neutral-400 dark:text-neutral-500 uppercase tracking-widest mb-3 px-1">Origin Account</label>
-              <select
-                value={selectedSession}
-                onChange={(e) => setSelectedSession(e.target.value)}
-                className="w-full px-5 py-4 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-2xl text-sm font-bold text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-white transition-all cursor-pointer shadow-sm"
-                required
-              >
+              <label className="block text-xs font-medium text-gray-500 mb-1">Session</label>
+              <select value={selSession} onChange={e => setSelSession(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-400">
                 {sessions.filter(s => s.status === 'ready').map(s => (
-                  <option key={s.id} value={s.id}>
-                    {s.name || s.id} {s.phone && ` — ${s.phone}`}
-                  </option>
+                  <option key={s.id} value={s.id}>{s.name || s.id}{s.phone ? ` — ${s.phone}` : ''}</option>
                 ))}
               </select>
             </div>
           )}
 
-          {/* Message Type Tabs */}
-          <div className="space-y-3">
-            <label className="block text-[11px] font-black text-neutral-400 dark:text-neutral-500 uppercase tracking-widest px-1">Message Protocol</label>
-            <div className="flex gap-2 flex-wrap">
-              {messageTypes
-                .filter(t => !t.officialOnly || isOfficial)
-                .map(({ id, label, icon: Icon }) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setMessageType(id)}
-                    className={`flex items-center gap-3 px-5 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all border shadow-sm ${
-                      messageType === id
-                        ? 'bg-neutral-900 dark:bg-white border-neutral-900 dark:border-white text-white dark:text-neutral-900'
-                        : 'bg-white dark:bg-neutral-800 border-neutral-100 dark:border-neutral-700 text-neutral-400 dark:text-neutral-500 hover:border-neutral-200 dark:hover:border-neutral-600 hover:text-neutral-900 dark:hover:text-white'
-                    }`}
-                  >
-                    <Icon size={14} />
-                    {label}
-                  </button>
-                ))}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Type</label>
+            <div className="flex gap-1.5 flex-wrap">
+              {types.filter(t => !t.officialOnly || isOfficial).map(({ id, label, icon: Icon }) => (
+                <button key={id} type="button" onClick={() => setMsgType(id)}
+                  className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    msgType === id ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900' : 'border border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'
+                  }`}>
+                  <Icon size={13} /> {label}
+                </button>
+              ))}
             </div>
           </div>
 
-          {/* Recipient */}
           <div>
-            <label className="block text-[11px] font-black text-neutral-400 dark:text-neutral-500 uppercase tracking-widest mb-3 px-1">Destination Number</label>
-            <input
-              type="text"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-              placeholder="6281234567890"
-              className="w-full px-5 py-4 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-2xl text-sm font-mono font-bold focus:outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-white focus:bg-white dark:focus:bg-neutral-800 transition-all placeholder-neutral-200 dark:placeholder-neutral-700 text-neutral-900 dark:text-white shadow-sm"
-              required
-            />
+            <label className="block text-xs font-medium text-gray-500 mb-1">To</label>
+            <input type="text" value={to} onChange={e => setTo(e.target.value)} placeholder="6281234567890"
+              className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 font-mono" required />
           </div>
 
-          {/* Dynamic Fields based on type */}
-          <div className="space-y-6 pt-4 border-t border-neutral-50 dark:border-neutral-800">
-            {messageType === 'text' && (
+          {msgType === 'text' && (
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Message</label>
+              <textarea value={text} onChange={e => setText(e.target.value)} rows={3} placeholder="Type your message..."
+                className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 resize-none" required />
+            </div>
+          )}
+
+          {msgType === 'template' && (
+            <div className="space-y-3">
               <div>
-                <label className="block text-[11px] font-black text-neutral-400 dark:text-neutral-500 uppercase tracking-widest mb-3 px-1">Payload Content</label>
-                <textarea
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  rows={5}
-                  placeholder="Enter message body here..."
-                  className="w-full px-5 py-4 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-2xl text-sm font-medium focus:outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-white focus:bg-white dark:focus:bg-neutral-800 transition-all resize-none text-neutral-900 dark:text-white shadow-sm"
-                  required
-                />
-              </div>
-            )}
-
-            {messageType === 'template' && (
-              <div className="space-y-6 animate-in fade-in duration-500">
-                {/* Template Selector */}
-                <div>
-                  <label className="block text-[11px] font-black text-neutral-400 dark:text-neutral-500 uppercase tracking-widest mb-3 px-1">Approved Template</label>
-                  {loadingTemplates ? (
-                    <div className="flex items-center gap-3 p-4 bg-neutral-50 dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 rounded-2xl text-xs font-bold text-neutral-400">
-                      <Loader2 size={14} className="animate-spin" />
-                      Fetching cloud templates...
-                    </div>
-                  ) : (
-                    <select
-                      value={selectedTemplate?.id || ''}
-                      onChange={(e) => {
-                        const t = templates.find(t => t.id === e.target.value);
-                        if (t) handleSelectTemplate(t);
-                      }}
-                      className="w-full px-5 py-4 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-2xl text-sm font-bold text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-1 focus:ring-neutral-900 dark:focus:ring-white transition-all cursor-pointer shadow-sm"
-                      required
-                    >
-                      <option value="">Select template registry...</option>
-                      {templates
-                        .filter(t => t.status === 'APPROVED')
-                        .map(t => (
-                          <option key={t.id} value={t.id}>
-                            {t.name} ({t.language})
-                          </option>
-                        ))}
-                    </select>
-                  )}
-                </div>
-
-                {/* Template Variables */}
-                {selectedTemplate && templateVariables.length > 0 && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {templateVariables.map((val, i) => (
-                      <div key={i}>
-                        <label className="block text-[9px] font-black text-neutral-400 dark:text-neutral-500 uppercase tracking-widest mb-2 px-1">{`VAR_{{${i + 1}}}`}</label>
-                        <input
-                          type="text"
-                          value={val}
-                          onChange={(e) => updateVariable(i, e.target.value)}
-                          placeholder="Inject value..."
-                          className="w-full px-4 py-3 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-xl text-xs font-bold text-neutral-900 dark:text-white shadow-sm"
-                          required
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Template Preview */}
-                {selectedTemplate && (
-                  <div className="p-6 bg-neutral-900 dark:bg-black rounded-2xl border border-neutral-800 shadow-sm">
-                    <label className="block text-[9px] font-black text-neutral-500 dark:text-neutral-600 uppercase tracking-widest mb-3">Generation Preview</label>
-                    <p className="text-xs text-neutral-300 dark:text-neutral-400 font-medium leading-relaxed whitespace-pre-wrap">{getTemplatePreview()}</p>
-                  </div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Template</label>
+                {loadingTpl ? (
+                  <div className="flex items-center gap-2 text-xs text-gray-400"><Loader2 size={12} className="animate-spin" />Loading templates...</div>
+                ) : (
+                  <select value={selTpl?.id || ''} onChange={e => {
+                    const t = templates.find(t => t.id === e.target.value);
+                    if (t) {
+                      setSelTpl(t);
+                      const bc = t.components?.find(c => c.type === 'BODY');
+                      const cnt = bc?.text ? (bc.text.match(/\{\{\d+\}\}/g) || []).length : 0;
+                      setTplVars(new Array(cnt).fill(''));
+                    }
+                  }} className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-400" required>
+                    <option value="">Select template...</option>
+                    {templates.filter(t => t.status === 'APPROVED').map(t => (<option key={t.id} value={t.id}>{t.name} ({t.language})</option>))}
+                  </select>
                 )}
               </div>
-            )}
+              {selTpl && tplVars.map((v, i) => (
+                <div key={i}>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Variable {i + 1}</label>
+                  <input type="text" value={v} onChange={e => { const n = [...tplVars]; n[i] = e.target.value; setTplVars(n); }}
+                    className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-400" required />
+                </div>
+              ))}
+            </div>
+          )}
 
-            {(messageType === 'image' || messageType === 'document') && (
-              <div className="space-y-6 animate-in fade-in duration-500">
-                <div className="p-8 bg-neutral-50 dark:bg-neutral-800/50 border-2 border-dashed border-neutral-200 dark:border-neutral-700 rounded-[2rem] text-center group hover:border-neutral-900 dark:hover:border-white transition-all shadow-sm">
-                  <input
-                    type="file"
-                    id="file-upload"
-                    accept={messageType === 'image' ? 'image/*' : '*/*'}
-                    onChange={(e) => handleFileChange(e)}
-                    className="hidden"
-                    required
-                  />
-                  <label htmlFor="file-upload" className="cursor-pointer">
-                    <div className="w-12 h-12 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:bg-neutral-900 dark:group-hover:bg-white group-hover:text-white dark:group-hover:text-neutral-900 transition-all shadow-sm">
-                      {messageType === 'image' ? <Image size={20} /> : <FileText size={20} />}
-                    </div>
-                    <p className="text-xs font-black uppercase tracking-widest text-neutral-900 dark:text-neutral-100">
-                      {filename || `Select ${messageType}`}
-                    </p>
-                    <p className="text-[10px] text-neutral-400 dark:text-neutral-500 font-bold mt-1">Maximum payload size: 16MB</p>
-                  </label>
+          {(msgType === 'image' || msgType === 'document') && (
+            <div className="space-y-3">
+              <div className="border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg p-6 text-center">
+                <input type="file" id="file-upload" accept={msgType === 'image' ? 'image/*' : '*/*'} onChange={handleFile} className="hidden" />
+                <label htmlFor="file-upload" className="cursor-pointer">
+                  <p className="text-sm font-medium">{fname || `Click to select ${msgType}`}</p>
+                  <p className="text-xs text-gray-400 mt-1">Max 16MB</p>
+                </label>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Caption</label>
+                <input type="text" value={caption} onChange={e => setCaption(e.target.value)} placeholder="Optional"
+                  className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-400" />
+              </div>
+            </div>
+          )}
+
+          {msgType === 'location' && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Latitude</label>
+                  <input type="number" step="any" value={lat} onChange={e => setLat(e.target.value)} placeholder="-6.2088"
+                    className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 font-mono" required />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-black text-neutral-400 dark:text-neutral-500 uppercase tracking-widest mb-3 px-1">Attachment Caption</label>
-                  <input
-                    type="text"
-                    value={caption}
-                    onChange={(e) => setCaption(e.target.value)}
-                    placeholder="Enter accompanying text..."
-                    className="w-full px-5 py-4 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-2xl text-sm font-medium text-neutral-900 dark:text-white shadow-sm"
-                  />
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Longitude</label>
+                  <input type="number" step="any" value={lng} onChange={e => setLng(e.target.value)} placeholder="106.8456"
+                    className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 font-mono" required />
                 </div>
               </div>
-            )}
-
-            {messageType === 'location' && (
-              <div className="space-y-6 animate-in fade-in duration-500">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[11px] font-black text-neutral-400 dark:text-neutral-500 uppercase tracking-widest mb-3 px-1">LATITUDE</label>
-                    <input
-                      type="number"
-                      step="any"
-                      value={latitude}
-                      onChange={(e) => setLatitude(e.target.value)}
-                      placeholder="-6.2088"
-                      className="w-full px-5 py-4 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-2xl text-sm font-mono font-bold text-neutral-900 dark:text-white shadow-sm"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-black text-neutral-400 dark:text-neutral-500 uppercase tracking-widest mb-3 px-1">LONGITUDE</label>
-                    <input
-                      type="number"
-                      step="any"
-                      value={longitude}
-                      onChange={(e) => setLongitude(e.target.value)}
-                      placeholder="106.8456"
-                      className="w-full px-5 py-4 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-2xl text-sm font-mono font-bold text-neutral-900 dark:text-white shadow-sm"
-                      required
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-black text-neutral-400 dark:text-neutral-500 uppercase tracking-widest mb-3 px-1">Location Alias</label>
-                  <input
-                    type="text"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    placeholder="e.g. Headquarters"
-                    className="w-full px-5 py-4 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-2xl text-sm font-medium text-neutral-900 dark:text-white shadow-sm"
-                  />
-                </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Description</label>
+                <input type="text" value={desc} onChange={e => setDesc(e.target.value)} placeholder="e.g. Office"
+                  className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-400" />
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </form>
 
-        {/* Footer Actions */}
-        <div className="p-8 border-t border-neutral-100 dark:border-neutral-800 flex items-center gap-4 bg-white dark:bg-neutral-900 sticky bottom-0 transition-colors">
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-1 px-6 py-4 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-500 hover:text-neutral-900 dark:hover:text-white rounded-2xl font-bold text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-all uppercase tracking-widest shadow-sm"
-          >
-            Abort
-          </button>
-          <button
-            onClick={handleSubmit}
-            type="submit"
-            disabled={loading || (messageType === 'template' && !selectedTemplate)}
-            className="flex-2 flex items-center justify-center gap-3 px-10 py-4 bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 rounded-2xl font-bold text-sm hover:bg-neutral-800 dark:hover:bg-neutral-100 transition-all uppercase tracking-widest disabled:bg-neutral-100 dark:disabled:bg-neutral-800 disabled:text-neutral-400 shadow-md"
-          >
-            {loading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-            {loading ? 'Transmitting...' : 'Dispatch Message'}
+        <div className="p-4 border-t border-gray-100 dark:border-gray-800 flex gap-2">
+          <button type="button" onClick={onClose}
+            className="flex-1 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">Cancel</button>
+          <button onClick={handleSubmit} type="submit" disabled={loading || (msgType === 'template' && !selTpl)}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-lg text-sm font-medium hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors disabled:opacity-50">
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} Send
           </button>
         </div>
       </div>

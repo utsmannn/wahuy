@@ -38,11 +38,23 @@ export async function webhookRoutes(server: FastifyInstance): Promise<void> {
       };
     }
 
+    // Require explicit sessions — safety: prevent accidental broadcast leaks
+    if (!body.sessions || body.sessions.length === 0) {
+      reply.status(400);
+      return {
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'sessions is required. Use ["*"] for all sessions or specify session IDs.'
+        }
+      };
+    }
+
     const webhook = {
       id: 'wh_' + nanoid(10),
       url: body.url,
       events: body.events,
-      sessions: body.sessions ?? [],
+      sessions: body.sessions,
       secret: body.secret,
       active: body.active ?? true,
       createdAt: new Date().toISOString()

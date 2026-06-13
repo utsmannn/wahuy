@@ -1,8 +1,7 @@
 /**
- * Internal Provider
+ * Internal Provider — Baileys
  *
- * Wraps WhatsApp Web.js to conform to the Official API interface.
- * This allows Internal Mode to accept requests in Official API format.
+ * Wraps Baileys-based SessionManager to conform to the Official API interface.
  */
 
 import { Readable } from 'stream';
@@ -22,38 +21,23 @@ import {
   type InternalProviderConfig
 } from '../types.js';
 
-interface LocalMedia {
-  id: string;
-  path: string;
-  mimeType: string;
-  filename?: string;
-  createdAt: Date;
-}
+interface LocalMedia { id: string; path: string; mimeType: string; filename?: string; createdAt: Date; }
 
 export class InternalProvider implements IWhatsAppProvider {
-  readonly name = 'WhatsApp Web.js (Internal)';
-  readonly version = '1.0.0';
+  readonly name = 'WhatsApp Baileys (Internal)';
+  readonly version = '2.0.0';
 
   private mediaStorage: Map<string, LocalMedia> = new Map();
   private mediaStoragePath: string;
 
   constructor(config: InternalProviderConfig) {
-    // Store config for potential future use (cleanup intervals, etc)
-    void config; // Currently unused but reserved for future features
+    void config;
     this.mediaStoragePath = path.join(config.storagePath, 'media');
     this.ensureMediaDirectory();
   }
 
-  // ============================================================================
-  // Lifecycle
-  // ============================================================================
-
   private async ensureMediaDirectory(): Promise<void> {
-    try {
-      await fs.mkdir(this.mediaStoragePath, { recursive: true });
-    } catch (err) {
-      logger.error({ error: err }, 'Failed to create media storage directory');
-    }
+    try { await fs.mkdir(this.mediaStoragePath, { recursive: true }); } catch {}
   }
 
   // ============================================================================
@@ -61,310 +45,162 @@ export class InternalProvider implements IWhatsAppProvider {
   // ============================================================================
 
   async sendMessage(request: SendMessageRequest): Promise<SendMessageResponse> {
-    // Get the first active session
     const sessions = sessionManager.listSessions();
     const activeSession = sessions.find(s => s.status === 'ready');
-
-    if (!activeSession) {
-      throw new ProviderError(
-        'NO_ACTIVE_SESSION',
-        'No active WhatsApp session available. Please create and authenticate a session first.'
-      );
-    }
+    if (!activeSession) throw new ProviderError('NO_ACTIVE_SESSION', 'No active WhatsApp session available.');
 
     const client = sessionManager.getSession(activeSession.id);
-    if (!client) {
-      throw new ProviderError('SESSION_NOT_FOUND', 'Session not found');
-    }
+    if (!client) throw new ProviderError('SESSION_NOT_FOUND', 'Session not found');
 
     try {
-      let result: unknown;
+      let result: { id: { _serialized: string }; to: string };
 
-      // Transform Official API format to Web.js format
       switch (request.type) {
         case 'text':
           result = await client.sendMessage(request.to, request.text?.body || '');
           break;
 
         case 'template':
-          // Template shim: unwrap template to text for Web.js
-          result = await this.sendTemplateAsText(client, request);
+          result = await client.sendMessage(request.to, this.templateToText(request));
           break;
 
         case 'image':
-          if (request.image?.link) {
-            result = await client.sendImage(request.to, request.image.link, request.image.caption);
-          } else {
-            throw new ProviderError('INVALID_MEDIA', 'Image link is required for internal provider');
-          }
+          if (!request.image?.link) throw new ProviderError('INVALID_MEDIA', 'Image link required');
+          result = await this.sendMediaFromUrl(client, request.to, request.image.link, 'image', request.image.caption);
           break;
 
         case 'document':
-          if (request.document?.link) {
-            result = await client.sendDocument(
-              request.to,
-              request.document.link,
-              request.document.caption,
-              request.document.filename
-            );
-          } else {
-            throw new ProviderError('INVALID_MEDIA', 'Document link is required for internal provider');
-          }
+          if (!request.document?.link) throw new ProviderError('INVALID_MEDIA', 'Document link required');
+          result = await this.sendMediaFromUrl(client, request.to, request.document.link, 'document', request.document.caption, request.document.filename);
           break;
 
         case 'video':
-          if (request.video?.link) {
-            result = await client.sendMessage(request.to, request.video.link);
-          } else {
-            throw new ProviderError('INVALID_MEDIA', 'Video link is required for internal provider');
-          }
+          if (!request.video?.link) throw new ProviderError('INVALID_MEDIA', 'Video link required');
+          result = await this.sendMediaFromUrl(client, request.to, request.video.link, 'video', request.video.caption);
           break;
 
         case 'audio':
-          if (request.audio?.link) {
-            result = await client.sendMessage(request.to, request.audio.link);
-          } else {
-            throw new ProviderError('INVALID_MEDIA', 'Audio link is required for internal provider');
-          }
+          if (!request.audio?.link) throw new ProviderError('INVALID_MEDIA', 'Audio link required');
+          result = await this.sendMediaFromUrl(client, request.to, request.audio.link, 'audio');
           break;
 
         case 'location':
-          if (request.location) {
-            result = await client.sendLocation(
-              request.to,
-              request.location.latitude,
-              request.location.longitude,
-              request.location.name
-            );
-          } else {
-            throw new ProviderError('INVALID_LOCATION', 'Location data is required');
-          }
+          if (!request.location) throw new ProviderError('INVALID_LOCATION', 'Location data required');
+          result = await client.sendLocation(request.to, request.location.latitude, request.location.longitude, request.location.name);
           break;
 
         default:
-          throw new ProviderError(
-            'UNSUPPORTED_TYPE',
-            `Message type '${request.type}' is not supported in internal mode`
-          );
+          throw new ProviderError('UNSUPPORTED_TYPE', `Type '${request.type}' not supported in internal mode`);
       }
-
-      // Transform Web.js result to Official API format
-      const messageId = this.extractMessageId(result);
 
       return {
         messaging_product: 'whatsapp',
-        contacts: [{
-          input: request.to,
-          wa_id: request.to.replace(/\D/g, '')
-        }],
-        messages: [{
-          id: messageId || `internal_${nanoid()}`,
-          message_status: 'accepted'
-        }]
+        contacts: [{ input: request.to, wa_id: request.to.replace(/\D/g, '') }],
+        messages: [{ id: result.id._serialized || `internal_${nanoid()}`, message_status: 'accepted' }],
       };
     } catch (error) {
       const err = error as Error;
-      logger.error({ error: err, to: request.to, type: request.type }, 'Failed to send message');
+      if (err instanceof ProviderError) throw err;
+      logger.error({ error: err.message, to: request.to, type: request.type }, 'Failed to send message');
       throw new ProviderError('SEND_FAILED', err.message);
     }
   }
 
-  /**
-   * Template shim: Convert template to text message for Web.js
-   */
-  private async sendTemplateAsText(client: any, request: SendMessageRequest): Promise<unknown> {
-    const template = request.template;
-    if (!template) {
-      throw new ProviderError('INVALID_TEMPLATE', 'Template data is required');
-    }
-
-    // Extract body text from template
-    let bodyText = '';
-    if (template.components) {
-      const bodyComponent = template.components.find(c => c.type === 'body');
-      if (bodyComponent?.parameters) {
-        // Join all text parameters
-        bodyText = bodyComponent.parameters
-          .filter(p => p.type === 'text')
-          .map(p => p.text)
-          .join(' ');
-      }
-    }
-
-    // If no body text, use template name
-    if (!bodyText) {
-      bodyText = `[Template: ${template.name}]`;
-    }
-
-    logger.debug({ templateName: template.name, bodyText }, 'Sending template as text (shim)');
-
-    return client.sendMessage(request.to, bodyText);
+  private templateToText(request: SendMessageRequest): string {
+    if (!request.template) return '';
+    const body = request.template.components?.find(c => c.type === 'body');
+    if (body?.parameters) return body.parameters.filter(p => p.type === 'text').map(p => p.text).join(' ');
+    return `[Template: ${request.template.name}]`;
   }
 
-  private extractMessageId(result: unknown): string {
-    if (result && typeof result === 'object') {
-      const msg = result as { id?: { _serialized?: string }; _data?: { id?: { _serialized?: string } } };
-      return msg.id?._serialized || msg._data?.id?._serialized || '';
+  private async sendMediaFromUrl(
+    client: ReturnType<typeof sessionManager.getSession>,
+    to: string,
+    url: string,
+    mediaType: string,
+    caption?: string,
+    filename?: string
+  ): Promise<{ id: { _serialized: string }; to: string }> {
+    if (!client) throw new ProviderError('SESSION_NOT_FOUND', 'Session not found');
+
+    // Download from URL
+    const response = await fetch(url);
+    if (!response.ok) throw new ProviderError('DOWNLOAD_FAILED', `Failed to download media: ${response.status}`);
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const base64 = buffer.toString('base64');
+    const mime = response.headers.get('content-type') || (mediaType === 'image' ? 'image/jpeg' : 'application/octet-stream');
+
+    if (mediaType === 'image' || mediaType === 'video') {
+      return client.sendImageBase64(to, base64, mime, caption, filename);
+    } else if (mediaType === 'document') {
+      return client.sendDocumentBase64(to, base64, mime, filename || 'file', caption);
+    } else {
+      return client.sendMessage(to, '[Media]');
     }
-    return '';
   }
 
   // ============================================================================
   // Media Operations
   // ============================================================================
 
-  /**
-   * Mock media upload for API compatibility
-   * In internal mode, we store files locally and return a mock ID
-   */
   async uploadMedia(fileStream: Readable, mimeType: string): Promise<UploadMediaResponse> {
     const mediaId = `internal_${nanoid(20)}`;
-    const extension = this.getExtensionFromMimeType(mimeType);
-    const filename = `${mediaId}.${extension}`;
-    const filePath = path.join(this.mediaStoragePath, filename);
-
+    const ext = this.getExtensionByMime(mimeType);
+    const filePath = path.join(this.mediaStoragePath, `${mediaId}.${ext}`);
     try {
-      // Save file to local storage
       await pipeline(fileStream, createWriteStream(filePath));
-
-      // Store metadata
-      this.mediaStorage.set(mediaId, {
-        id: mediaId,
-        path: filePath,
-        mimeType,
-        filename,
-        createdAt: new Date()
-      });
-
-      logger.debug({ mediaId, mimeType, path: filePath }, 'Media uploaded (internal)');
-
+      this.mediaStorage.set(mediaId, { id: mediaId, path: filePath, mimeType, filename: `${mediaId}.${ext}`, createdAt: new Date() });
       return { id: mediaId };
-    } catch (error) {
-      logger.error({ error, mediaId }, 'Failed to upload media');
+    } catch (err) {
       throw new ProviderError('UPLOAD_FAILED', 'Failed to save media file');
     }
   }
 
   async downloadMedia(mediaId: string): Promise<Readable> {
     const media = this.mediaStorage.get(mediaId);
-
-    if (!media) {
-      throw new ProviderError('MEDIA_NOT_FOUND', `Media with ID ${mediaId} not found`);
-    }
-
-    try {
-      await fs.access(media.path);
-    } catch {
-      throw new ProviderError('MEDIA_NOT_FOUND', 'Media file no longer exists');
-    }
-
+    if (!media) throw new ProviderError('MEDIA_NOT_FOUND', `Media ${mediaId} not found`);
+    try { await fs.access(media.path); } catch { throw new ProviderError('MEDIA_NOT_FOUND', 'File no longer exists'); }
     return createReadStream(media.path);
   }
 
   async getMediaUrl(mediaId: string): Promise<{ url: string; mimeType: string }> {
     const media = this.mediaStorage.get(mediaId);
-
-    if (!media) {
-      throw new ProviderError('MEDIA_NOT_FOUND', `Media with ID ${mediaId} not found`);
-    }
-
-    // For internal mode, return a local file path as URL
-    // This will be handled by a local file serving endpoint
-    return {
-      url: `/media/${mediaId}`,
-      mimeType: media.mimeType
-    };
+    if (!media) throw new ProviderError('MEDIA_NOT_FOUND', `Media ${mediaId} not found`);
+    return { url: `/media/${mediaId}`, mimeType: media.mimeType };
   }
 
-  private getExtensionFromMimeType(mimeType: string): string {
-    const map: Record<string, string> = {
-      'image/jpeg': 'jpg',
-      'image/png': 'png',
-      'image/webp': 'webp',
-      'video/mp4': 'mp4',
-      'video/3gpp': '3gp',
-      'audio/mpeg': 'mp3',
-      'audio/ogg': 'ogg',
-      'audio/opus': 'opus',
-      'application/pdf': 'pdf',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
-      'application/msword': 'doc',
-    };
-    return map[mimeType] || 'bin';
+  private getExtensionByMime(m: string): string {
+    const map: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'video/mp4': 'mp4', 'audio/mpeg': 'mp3', 'audio/ogg': 'ogg', 'application/pdf': 'pdf' };
+    return map[m] || 'bin';
   }
 
   // ============================================================================
-  // Webhook Operations
+  // Webhook & Status
   // ============================================================================
 
-  async handleWebhook(_payload: unknown): Promise<void> {
-    // Internal provider doesn't receive external webhooks
-    // Events are handled internally via EventEmitter
-    logger.debug('Internal provider received webhook (ignored)');
-  }
-
-  async verifyWebhook(_mode: string, _token: string, _challenge: string): Promise<string | null> {
-    // Internal provider doesn't use webhook verification
-    // Return null to indicate no verification needed
-    return null;
-  }
-
-  // ============================================================================
-  // Session Operations
-  // ============================================================================
+  async handleWebhook(_payload: unknown): Promise<void> { logger.debug('Internal provider webhook ignored'); }
+  async verifyWebhook(_mode: string, _token: string, _challenge: string): Promise<string | null> { return null; }
 
   getStatus(): ProviderStatus {
     const sessions = sessionManager.listSessions();
-    const hasReady = sessions.some(s => s.status === 'ready');
-    const hasConnecting = sessions.some(s => s.status === 'connecting' || s.status === 'starting');
-
-    if (hasReady) return 'ready';
-    if (hasConnecting) return 'connecting';
-    return 'disconnected';
+    return sessions.some(s => s.status === 'ready') ? 'ready' : sessions.some(s => s.status === 'connecting' || s.status === 'starting') ? 'connecting' : 'disconnected';
   }
 
-  async getBusinessProfile(): Promise<{ messaging_product: 'whatsapp'; about?: string; profile_picture_url?: string }> {
+  async getBusinessProfile(): Promise<{ messaging_product: 'whatsapp'; about?: string }> {
     const sessions = sessionManager.listSessions();
-    const activeSession = sessions.find(s => s.status === 'ready');
-
-    if (!activeSession) {
-      throw new ProviderError('NO_ACTIVE_SESSION', 'No active session to get profile');
-    }
-
-    return {
-      messaging_product: 'whatsapp',
-      about: activeSession.pushName || undefined,
-      profile_picture_url: undefined
-    };
+    const active = sessions.find(s => s.status === 'ready');
+    if (!active) throw new ProviderError('NO_ACTIVE_SESSION', 'No active session');
+    return { messaging_product: 'whatsapp', about: active.pushName || undefined };
   }
 
-  // ============================================================================
-  // Media Cleanup
-  // ============================================================================
-
-  async cleanupOldMedia(maxAgeMs: number = 7 * 24 * 60 * 60 * 1000): Promise<void> {
+  async cleanupOldMedia(maxAgeMs = 7 * 24 * 60 * 60 * 1000): Promise<void> {
     const now = Date.now();
     const toDelete: string[] = [];
-
-    for (const [id, media] of this.mediaStorage.entries()) {
-      if (now - media.createdAt.getTime() > maxAgeMs) {
-        toDelete.push(id);
-      }
-    }
-
+    for (const [id, media] of this.mediaStorage) if (now - media.createdAt.getTime() > maxAgeMs) toDelete.push(id);
     for (const id of toDelete) {
-      const media = this.mediaStorage.get(id);
-      if (media) {
-        try {
-          await fs.unlink(media.path);
-          this.mediaStorage.delete(id);
-          logger.debug({ mediaId: id }, 'Cleaned up old media');
-        } catch (error) {
-          logger.warn({ error, mediaId: id }, 'Failed to clean up media');
-        }
-      }
+      try { const m = this.mediaStorage.get(id); if (m) { await fs.unlink(m.path); this.mediaStorage.delete(id); } } catch {}
     }
-
-    logger.info({ deleted: toDelete.length }, 'Media cleanup completed');
+    logger.info({ deleted: toDelete.length }, 'Media cleanup done');
   }
 }
