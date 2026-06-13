@@ -52,6 +52,17 @@ export interface HealthResponse {
   };
 }
 
+export interface ContactInfo {
+  id: string | null;
+  number: string | null;
+  name: string | null;
+  pushname: string | null;
+  shortName: string | null;
+  isBusiness: boolean;
+  isEnterprise: boolean;
+  isMe: boolean;
+}
+
 export interface Message {
   id: string;
   from: string;
@@ -61,6 +72,10 @@ export interface Message {
   timestamp: string;
   fromMe: boolean;
   hasMedia: boolean;
+  contacts?: {
+    sender: ContactInfo | null;
+    receiver: ContactInfo | null;
+  };
   media?: {
     data: string;
     mimetype: string;

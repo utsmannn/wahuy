@@ -1,73 +1,77 @@
-# React + TypeScript + Vite
+# Wahuy Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + Vite dashboard for managing Wahuy sessions, realtime pairing, messages, provider settings, and outbound webhooks.
 
-Currently, two official plugins are available:
+## What it does
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- Login with the Wahuy API key.
+- Create, start, stop, logout, and delete Internal Baileys sessions.
+- Show QR pairing state in realtime from Socket.IO events.
+- Open/update the QR modal without manual refresh when QR rotates.
+- Close stale QR modal/state when a session becomes `ready`, `disconnected`, `stopped`, or `failed`.
+- Send messages from ready sessions.
+- View recent messages, including resolved `contacts.*.number` when Baileys provides LID→PN mapping.
+- Manage provider mode and outbound webhooks.
 
-## React Compiler
+## Realtime behavior
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+The dashboard connects to the Wahuy Socket.IO server at the same origin:
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```ts
+io(window.location.origin, {
+  auth: { apiKey },
+  path: '/socket.io',
+});
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+On connect it subscribes to all sessions:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```ts
+socket.emit('subscribe', { sessions: ['*'] });
+socket.emit('getSessions');
 ```
+
+Important events:
+
+| Event | Dashboard behavior |
+|-------|--------------------|
+| `sessions` | Replace local session list. |
+| `session:qr` | Cache QR, mark session as `scan_qr`, update open QR modal. |
+| `session:status` | Update session status, clear QR/modal on non-QR terminal states. |
+| `message:received` | Prepend live message to message viewer. |
+
+`GET /api/sessions/:id/qr` is still used as a fallback if the session is already `scan_qr` but the WebSocket QR payload has not arrived.
+
+## Message display
+
+Incoming messages can use Baileys v7 LID JIDs (`12345@lid`). The dashboard displays the phone number from `message.contacts.sender.number` when available, instead of deriving a fake number from the JID. If Baileys has not provided a PN mapping yet, it falls back to the visible JID.
+
+## Development
+
+```bash
+cd dashboard
+npm install
+npm run dev
+npm run build
+```
+
+From the repository root:
+
+```bash
+npm run dashboard:dev
+npm run dashboard:build
+```
+
+## Key files
+
+| File | Purpose |
+|------|---------|
+| `src/App.tsx` | Top-level state, session actions, QR modal, realtime handlers. |
+| `src/hooks/useWebSocket.ts` | Socket.IO connection and event subscription. |
+| `src/components/SessionCard.tsx` | Session status, QR CTA, session actions. |
+| `src/components/MessageViewer.tsx` | Recent message list and contact/phone display. |
+| `src/components/SendMessageModal.tsx` | Send text/media/location messages. |
+| `src/components/WebhookList.tsx` | Outbound webhook management. |
+| `src/components/ProviderSetup.tsx` | Provider mode/config UI. |
+| `src/lib/api.ts` | Dashboard HTTP API client. |
+| `src/types/index.ts` | Dashboard TypeScript API/message/session types. |

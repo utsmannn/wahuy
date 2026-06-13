@@ -229,6 +229,13 @@ curl http://localhost:7834/api/sessions/main/qr \
 # Or watch it via WebSocket in realtime
 ```
 
+When a QR is generated, realtime clients receive both:
+
+- `session:status` with `status: "scan_qr"`
+- `session:qr` with the QR data URL
+
+The built-in dashboard uses these events to show the QR CTA, update an open QR modal when QR rotates, and close the modal when pairing reaches `ready` or another non-QR state. REST QR polling remains a fallback.
+
 ### Step 4: Poll until ready
 
 ```bash
@@ -391,15 +398,27 @@ curl -X POST http://localhost:7834/api/webhooks \
   "session": { "id": "main", "phone": null },
   "payload": {
     "id": "BAE5...",
-    "from": "6281234567890@s.whatsapp.net",
+    "from": "12345@lid",
     "body": "Hello!",
     "type": "chat",
     "fromMe": false,
     "hasMedia": false,
-    "contacts": { "sender": {...}, "receiver": {...} }
+    "contacts": {
+      "sender": {
+        "id": "12345@lid",
+        "number": "6281234567890",
+        "pushname": "Jane"
+      },
+      "receiver": {
+        "id": "6289876543210@s.whatsapp.net",
+        "number": "6289876543210"
+      }
+    }
   }
 }
 ```
+
+Internal mode preserves Baileys LID JIDs in `from`, `to`, and `contacts.*.id`. Use `contacts.*.number` when you need the phone number; it is populated only when Baileys provides a trusted PN mapping. If no LID→PN mapping exists yet, the number is `null`.
 
 ### Verify webhook signatures
 
@@ -449,6 +468,29 @@ socket.on('message:sent', (event) => console.log('Sent', event.message));
 ```
 
 The QR is also available via REST fallback (`GET /api/sessions/:id/qr`) — the dashboard polls this automatically if WebSocket hasn't delivered it yet.
+
+### Message identity and phone numbers
+
+Baileys v7 may identify users with LID JIDs like `12345@lid`. Do not assume the user part of an `@lid` JID is a phone number.
+
+Wahuy's Internal provider follows this rule:
+
+| Field | Meaning |
+|-------|---------|
+| `from` / `to` | Normalized Baileys JID identity. May be `@lid`. |
+| `contacts.sender.id` / `contacts.receiver.id` | Same identity semantics as above. May be `@lid`. |
+| `contacts.sender.number` / `contacts.receiver.number` | Real phone number when Baileys provides a PN mapping; otherwise `null`. |
+
+Phone number resolution uses, in order where available:
+
+1. message key alternate JIDs: `remoteJidAlt`, `participantAlt`
+2. optional `senderPn` from newer Baileys builds
+3. contact sync fields: `phoneNumber`, `lid`
+4. history sync `lidPnMappings`
+5. `lid-mapping.update` events
+6. `sock.signalRepository.lidMapping.getPNForLID(lid)`
+
+Never derive a phone number by splitting an `@lid` JID.
 
 ---
 

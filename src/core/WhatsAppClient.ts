@@ -12,9 +12,15 @@ import {
   DisconnectReason,
   makeCacheableSignalKeyStore,
   fetchLatestBaileysVersion,
+  jidNormalizedUser,
+  isLidUser,
+  isPnUser,
+  jidDecode,
   type WASocket,
   type WAMessage,
   type ConnectionState,
+  type Contact,
+  type LIDMapping,
 } from '@whiskeysockets/baileys';
 import { join } from 'path';
 import { logger } from '../utils/logger.js';
@@ -45,6 +51,7 @@ export class WhatsAppClient extends EventEmitter {
   private autoReconnectEnabled = true;
   private isDestroyed = false;
   private saveCreds: ((creds: unknown) => Promise<void>) | null = null;
+  private lidToPn = new Map<string, string>();
 
   constructor(id: string, name?: string) {
     super();
@@ -136,6 +143,7 @@ export class WhatsAppClient extends EventEmitter {
         this.qrCode = qr;
         this.status = 'scan_qr';
         logger.info({ sessionId: this.id }, 'QR code ready');
+        this.emit('status', 'scan_qr');
         this.emit('qr', qr);
       }
 
@@ -187,6 +195,35 @@ export class WhatsAppClient extends EventEmitter {
       }
     });
 
+    const rememberContact = (contact: Partial<Contact>) => {
+      this.rememberLidPn(contact.lid, contact.phoneNumber);
+
+      if (isLidUser(contact.id) && contact.phoneNumber) {
+        this.rememberLidPn(contact.id, contact.phoneNumber);
+      } else if (isPnUser(contact.id) && contact.lid) {
+        this.rememberLidPn(contact.lid, contact.id);
+      }
+    };
+
+    this.sock.ev.on('lid-mapping.update', ({ lid, pn }: LIDMapping) => {
+      this.rememberLidPn(lid, pn);
+    });
+
+    this.sock.ev.on('contacts.upsert', (contacts: Contact[]) => {
+      for (const contact of contacts) rememberContact(contact);
+    });
+
+    this.sock.ev.on('contacts.update', (contacts: Partial<Contact>[]) => {
+      for (const contact of contacts) rememberContact(contact);
+    });
+
+    this.sock.ev.on('messaging-history.set', ({ contacts, lidPnMappings }) => {
+      for (const mapping of lidPnMappings || []) {
+        this.rememberLidPn(mapping.lid, mapping.pn);
+      }
+      for (const contact of contacts || []) rememberContact(contact);
+    });
+
     this.sock.ev.on('messages.upsert', async ({ messages, type }: { messages: WAMessage[]; type: string }) => {
       for (const msg of messages) {
         if (msg.key.remoteJid === 'status@broadcast') continue;
@@ -219,6 +256,53 @@ export class WhatsAppClient extends EventEmitter {
   // ============================================================================
   // Message Formatting (Baileys raw → WahuyMessage)
   // ============================================================================
+
+  private normalizeJid(jid?: string | null): string {
+    return jid ? jidNormalizedUser(jid) : '';
+  }
+
+  private rememberLidPn(lid?: string | null, pn?: string | null): void {
+    const normalizedLid = this.normalizeJid(lid);
+    const normalizedPn = this.normalizeJid(pn);
+
+    if (isLidUser(normalizedLid) && isPnUser(normalizedPn)) {
+      this.lidToPn.set(normalizedLid, normalizedPn);
+    }
+  }
+
+  private async resolvePhoneJid(jid?: string | null, preferredPn?: string | null): Promise<string | null> {
+    const normalized = this.normalizeJid(jid);
+    if (!normalized) return null;
+    if (!isLidUser(normalized)) return normalized;
+
+    const normalizedPreferredPn = this.normalizeJid(preferredPn);
+    if (isPnUser(normalizedPreferredPn)) {
+      this.lidToPn.set(normalized, normalizedPreferredPn);
+      return normalizedPreferredPn;
+    }
+
+    const cached = this.lidToPn.get(normalized);
+    if (cached) return cached;
+
+    try {
+      const pn = await this.sock?.signalRepository?.lidMapping?.getPNForLID(normalized);
+      const normalizedPn = this.normalizeJid(pn);
+      if (isPnUser(normalizedPn)) {
+        this.lidToPn.set(normalized, normalizedPn);
+        return normalizedPn;
+      }
+    } catch (error) {
+      logger.debug({ sessionId: this.id, jid: normalized, error: (error as Error).message }, 'Failed to resolve LID to phone number');
+    }
+
+    return null;
+  }
+
+  private async numberFromJid(jid?: string | null, preferredPn?: string | null): Promise<string | null> {
+    const phoneJid = await this.resolvePhoneJid(jid, preferredPn);
+    if (!phoneJid || !isPnUser(phoneJid)) return null;
+    return jidDecode(phoneJid)?.user ?? null;
+  }
 
   private async formatMessage(msg: WAMessage): Promise<object> {
     const key = msg.key;
@@ -257,13 +341,24 @@ export class WhatsAppClient extends EventEmitter {
       };
     }
 
-    const senderNumber = key.participant || key.remoteJid || '';
-    const receiverNumber = isFromMe ? (key.remoteJid || '') : this.phone || '';
+    const senderJid = this.normalizeJid(key.participant || key.remoteJid);
+    const receiverJid = this.normalizeJid(isFromMe ? key.remoteJid : (this.phone ? `${this.phone}@s.whatsapp.net` : ''));
+    const keyWithAlt = key as typeof key & {
+      remoteJidAlt?: string | null;
+      participantAlt?: string | null;
+      senderPn?: string | null;
+    };
+    const senderPreferredPn = key.participant
+      ? keyWithAlt.participantAlt || keyWithAlt.senderPn
+      : keyWithAlt.remoteJidAlt || keyWithAlt.senderPn;
+    const receiverPreferredPn = isFromMe ? keyWithAlt.remoteJidAlt : null;
+    const senderPhone = await this.numberFromJid(senderJid, senderPreferredPn);
+    const receiverPhone = await this.numberFromJid(receiverJid, receiverPreferredPn);
 
     return {
       id: key.id || '',
-      from: senderNumber,
-      to: receiverNumber,
+      from: senderJid,
+      to: receiverJid,
       body,
       type,
       timestamp: new Date((msg.messageTimestamp as number || 0) * 1000).toISOString(),
@@ -273,8 +368,8 @@ export class WhatsAppClient extends EventEmitter {
       quotedMessage,
       isForwarded: false,
       contacts: {
-        sender: { id: senderNumber, number: senderNumber.split('@')[0] || null, name: null, pushname: msg.pushName || null, shortName: null, isBusiness: false, isEnterprise: false, isMe: isFromMe },
-        receiver: { id: receiverNumber, number: receiverNumber.split('@')[0] || null, name: null, pushname: null, shortName: null, isBusiness: false, isEnterprise: false, isMe: !isFromMe },
+        sender: { id: senderJid, number: senderPhone, name: null, pushname: msg.pushName || null, shortName: null, isBusiness: false, isEnterprise: false, isMe: isFromMe },
+        receiver: { id: receiverJid, number: receiverPhone, name: null, pushname: null, shortName: null, isBusiness: false, isEnterprise: false, isMe: !isFromMe },
       },
     };
   }

@@ -44,14 +44,19 @@ function App() {
 
   const handleQR = useCallback((sessionId: string, qr: string) => {
     setQrCodes(prev => ({ ...prev, [sessionId]: qr }));
+    setSessions(prev => prev.map(s =>
+      s.id === sessionId ? { ...s, status: 'scan_qr' } : s
+    ));
+    setQrModal(prev => prev?.sessionId === sessionId ? { ...prev, qr } : prev);
   }, []);
 
   const handleStatus = useCallback((sessionId: string, status: string, phone?: string) => {
     setSessions(prev => prev.map(s =>
       s.id === sessionId ? { ...s, status: status as Session['status'], phone: phone || s.phone } : s
     ));
-    if (status === 'ready' || status === 'disconnected') {
+    if (['ready', 'disconnected', 'stopped', 'failed'].includes(status)) {
       setQrCodes(prev => { const { [sessionId]: _, ...rest } = prev; void _; return rest; });
+      setQrModal(prev => prev?.sessionId === sessionId ? null : prev);
     }
     loadStats();
   }, []);

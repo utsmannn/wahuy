@@ -9,11 +9,21 @@ export function MessageViewer({ messages, onClear, sessions }: MessageViewerProp
   const [selSess, setSelSess] = useState('');
 
   const filtered = messages.filter(m => {
-    const match = m.body?.toLowerCase().includes(filter.toLowerCase()) || m.from?.includes(filter);
+    const q = filter.toLowerCase();
+    const sender = m.contacts?.sender;
+    const match =
+      m.body?.toLowerCase().includes(q) ||
+      m.from?.toLowerCase().includes(q) ||
+      sender?.number?.includes(filter) ||
+      sender?.pushname?.toLowerCase().includes(q) ||
+      sender?.name?.toLowerCase().includes(q);
     return match && (!selSess || m.sessionId === selSess);
   });
 
-  const fmtPhone = (jid: string) => jid?.replace('@c.us', '').replace('@g.us', '') || '?';
+  const fmtPhone = (msg: Message) => {
+    const contact = msg.fromMe ? msg.contacts?.receiver : msg.contacts?.sender;
+    return contact?.number || msg.from?.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@g.us', '') || '?';
+  };
   const fmtTime = (t: string) => { try { return new Date(t).toLocaleString(); } catch { return t; } };
 
   const downloadMedia = (msg: Message) => {
@@ -54,7 +64,7 @@ export function MessageViewer({ messages, onClear, sessions }: MessageViewerProp
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className={`text-xs font-semibold ${msg.fromMe ? 'text-gray-900 dark:text-white' : 'text-gray-500'}`}>
-                      {msg.fromMe ? '→ Sent' : `← ${fmtPhone(msg.from)}`}
+                      {msg.fromMe ? `→ Sent to ${fmtPhone(msg)}` : `← ${fmtPhone(msg)}`}
                     </span>
                     <span className="text-[10px] text-gray-400">{fmtTime(msg.timestamp)}</span>
                     {msg.sessionId && (

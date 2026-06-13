@@ -26,7 +26,7 @@ flowchart LR
 
 **Wahuy is the middle layer.** Apps call simple HTTP endpoints. Wahuy handles WhatsApp sessions, provider routing, message sending, media, realtime events, webhook forwarding, and persistence.
 
-**Key difference from calling Meta directly:** Wahuy can run in either unofficial multi-session QR mode for fast automation, or Official Cloud API proxy mode for production WABA integrations. Internal mode uses Baileys — a direct WebSocket-based library — so no Chromium/Puppeteer needed.
+**Key difference from calling Meta directly:** Wahuy can run in either unofficial multi-session QR mode for fast automation, or Official Cloud API proxy mode for production WABA integrations. Internal mode uses Baileys — a direct WebSocket-based library — so no Chromium/Puppeteer needed. Baileys v7 LID JIDs are preserved as message identity; Wahuy only fills `contacts.*.number` when a trusted PN mapping is available.
 
 ### Core Features
 
@@ -38,7 +38,8 @@ flowchart LR
 | **Messaging** | Text, image, document, location, reply, typing, recording, read receipts. |
 | **Events** | WebSocket push + outbound webhooks with HMAC signature + REST history. |
 | **Persistence** | Session auth files + SQLite message and webhook logs under `data/`. |
-| **Dashboard** | Built-in React dashboard with QR modal, session manager, provider switcher. |
+| **Dashboard** | Built-in React dashboard with realtime QR pairing, session manager, provider switcher, and message viewer. |
+| **Contact Metadata** | Preserves Baileys LID identity while resolving phone numbers when WhatsApp provides PN mapping. |
 | **Small Image** | Only ~350MB Docker image — no Chromium needed. |
 
 ---
@@ -203,11 +204,19 @@ const socket = io('http://localhost:7834', {
 });
 
 socket.emit('subscribe', { sessions: ['*'] });
-socket.on('session:qr', console.log);
-socket.on('session:status', console.log);
+socket.on('session:qr', console.log);      // QR data URL for pairing
+socket.on('session:status', console.log);  // includes scan_qr, ready, disconnected, failed
 socket.on('message:received', console.log);
 socket.on('message:sent', console.log);
 ```
+
+When a pairing QR is generated, Wahuy emits both `session:status` with `status: "scan_qr"` and `session:qr`. The dashboard uses these realtime events to show/update the QR modal without manual refresh. REST `GET /api/sessions/:id/qr` remains available as a fallback.
+
+### Message Contact Metadata
+
+Internal-mode messages may use Baileys v7 LID JIDs such as `12345@lid`. Wahuy keeps those IDs in `from`, `to`, and `contacts.*.id` so callers can track the exact WhatsApp identity. Phone numbers are exposed only in `contacts.*.number` when Baileys provides a trusted PN JID via `remoteJidAlt`, `participantAlt`, `senderPn`, contact sync, history sync, `lid-mapping.update`, or the Baileys LID mapping store.
+
+If no mapping exists yet, `contacts.*.number` is `null` instead of a fake number derived from the LID user part.
 
 ### Webhook Payload Format
 
@@ -218,11 +227,22 @@ socket.on('message:sent', console.log);
   "session": { "id": "main", "phone": null },
   "payload": {
     "id": "BAE5...",
-    "from": "6281234567890@s.whatsapp.net",
+    "from": "12345@lid",
     "body": "Hello!",
     "type": "chat",
     "fromMe": false,
-    "hasMedia": false
+    "hasMedia": false,
+    "contacts": {
+      "sender": {
+        "id": "12345@lid",
+        "number": "6281234567890",
+        "pushname": "Jane"
+      },
+      "receiver": {
+        "id": "6289876543210@s.whatsapp.net",
+        "number": "6289876543210"
+      }
+    }
   }
 }
 ```
