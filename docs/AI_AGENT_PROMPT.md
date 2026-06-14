@@ -237,6 +237,40 @@ When a QR is generated, realtime clients receive both:
 
 The built-in dashboard uses these events to show the QR CTA, update an open QR modal when QR rotates, and close the modal when pairing reaches `ready` or another non-QR state. REST QR polling remains a fallback.
 
+`session:status` always includes `sessionId` and `status`. It may also include additive diagnostic fields:
+
+| Field | Meaning |
+|-------|---------|
+| `reason` | Human-readable failure/disconnect reason when available. |
+| `lastError.code` | Machine-readable error code such as `CONNECT_FAILED`, `DISCONNECTED`, or `RECONNECT_FAILED`. |
+| `lastError.message` | Error detail captured by the Baileys session wrapper. |
+| `lastError.timestamp` | ISO timestamp when the error was recorded. |
+| `reconnect` | Current reconnect settings and attempt timestamps. |
+
+Example failed status event:
+
+```json
+{
+  "sessionId": "main",
+  "status": "failed",
+  "reason": "Max reconnect attempts exceeded",
+  "lastError": {
+    "code": "CONNECT_FAILED",
+    "message": "...",
+    "timestamp": "2026-01-15T10:30:00.000Z"
+  },
+  "reconnect": {
+    "enabled": true,
+    "attempts": 5,
+    "maxAttempts": 5,
+    "nextAttemptAt": null,
+    "lastAttemptAt": "2026-01-15T10:29:55.000Z"
+  }
+}
+```
+
+This is an additive contract: existing consumers can keep reading only `sessionId` and `status`; strict validators should allow unknown fields. REST `GET /api/sessions/{id}/status` returns the same diagnostics for polling/debugging.
+
 ### Step 4: Poll until ready
 
 ```bash

@@ -133,14 +133,15 @@ function wireSessionEvents(): void {
   });
 
   sessionManager.on('session:status', (data) => {
-    io?.to(`session:${data.sessionId}`).emit('session:status', {
+    const payload = {
       sessionId: data.sessionId,
-      status: data.status
-    });
-    io?.to('session:*').emit('session:status', {
-      sessionId: data.sessionId,
-      status: data.status
-    });
+      status: data.status,
+      ...(data.lastError ? { lastError: data.lastError } : {}),
+      ...(data.reconnect ? { reconnect: data.reconnect } : {})
+    };
+
+    io?.to(`session:${data.sessionId}`).emit('session:status', payload);
+    io?.to('session:*').emit('session:status', payload);
   });
 
   sessionManager.on('session:authenticated', (data) => {
@@ -155,16 +156,26 @@ function wireSessionEvents(): void {
   });
 
   sessionManager.on('session:auth_failure', (data) => {
-    io?.to(`session:${data.sessionId}`).emit('session:status', {
+    const payload = {
       sessionId: data.sessionId,
       status: 'failed',
       reason: data.reason
-    });
-    io?.to('session:*').emit('session:status', {
+    };
+
+    io?.to(`session:${data.sessionId}`).emit('session:status', payload);
+    io?.to('session:*').emit('session:status', payload);
+  });
+
+  sessionManager.on('session:failed', (data) => {
+    const payload = {
       sessionId: data.sessionId,
       status: 'failed',
-      reason: data.reason
-    });
+      reason: data.reason,
+      lastError: data.lastError
+    };
+
+    io?.to(`session:${data.sessionId}`).emit('session:status', payload);
+    io?.to('session:*').emit('session:status', payload);
   });
 
   sessionManager.on('session:ready', (data) => {

@@ -24,6 +24,19 @@ export interface SessionStatusEvent {
   sessionId: string;
   status: string;
   phone?: string | null;
+  reason?: string;
+  lastError?: {
+    code: string;
+    message: string;
+    timestamp: string;
+  } | null;
+  reconnect?: {
+    enabled: boolean;
+    attempts: number;
+    maxAttempts: number;
+    nextAttemptAt: string | null;
+    lastAttemptAt: string | null;
+  };
 }
 
 export interface MessageEvent {

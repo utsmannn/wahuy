@@ -40,7 +40,15 @@ export class SessionManager extends EventEmitter {
     client.on('disconnected', (reason) => this.emit('session:disconnected', { sessionId: id, reason }));
     client.on('reconnecting', (data) => this.emit('session:reconnecting', { sessionId: id, ...data }));
     client.on('failed', (data) => this.emit('session:failed', { sessionId: id, ...data }));
-    client.on('status', (status) => this.emit('session:status', { sessionId: id, status }));
+    client.on('status', (status) => {
+      const info = client.getInfo();
+      this.emit('session:status', {
+        sessionId: id,
+        status,
+        lastError: info.lastError,
+        reconnect: info.reconnect,
+      });
+    });
     client.on('message', (msg) => this.emit('message:received', { sessionId: id, message: msg }));
     client.on('message_sent', (msg) => this.emit('message:sent', { sessionId: id, message: msg }));
     client.on('message_ack', (data) => this.emit('message:ack', { sessionId: id, ...data }));

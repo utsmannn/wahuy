@@ -38,10 +38,10 @@ Important events:
 |-------|--------------------|
 | `sessions` | Replace local session list. |
 | `session:qr` | Cache QR, mark session as `scan_qr`, update open QR modal. |
-| `session:status` | Update session status, clear QR/modal on non-QR terminal states. |
+| `session:status` | Update session status, clear QR/modal on non-QR terminal states. May include `reason`, `lastError`, and `reconnect` diagnostics. |
 | `message:received` | Prepend live message to message viewer. |
 
-`GET /api/sessions/:id/qr` is still used as a fallback if the session is already `scan_qr` but the WebSocket QR payload has not arrived.
+`GET /api/sessions/:id/qr` is still used as a fallback if the session is already `scan_qr` but the WebSocket QR payload has not arrived. For failed starts, `session:status` can include additive diagnostics (`reason`, `lastError`, `reconnect`); REST `GET /api/sessions/:id/status` returns the same details for polling/debugging.
 
 ## Message display
 

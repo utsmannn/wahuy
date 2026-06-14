@@ -213,12 +213,36 @@ const socket = io('http://localhost:7834', {
 
 socket.emit('subscribe', { sessions: ['*'] });
 socket.on('session:qr', console.log);      // QR data URL for pairing
-socket.on('session:status', console.log);  // includes scan_qr, ready, disconnected, failed
+socket.on('session:status', console.log);  // scan_qr, ready, disconnected, failed, etc.
 socket.on('message:received', console.log);
 socket.on('message:sent', console.log);
 ```
 
 When a pairing QR is generated, Wahuy emits both `session:status` with `status: "scan_qr"` and `session:qr`. The dashboard uses these realtime events to show/update the QR modal without manual refresh. REST `GET /api/sessions/:id/qr` remains available as a fallback.
+
+`session:status` keeps the original `sessionId` and `status` fields. It can also include additive diagnostic fields such as `reason`, `lastError`, and `reconnect` so realtime consumers can explain failed starts without polling REST status:
+
+```json
+{
+  "sessionId": "main",
+  "status": "failed",
+  "reason": "Max reconnect attempts exceeded",
+  "lastError": {
+    "code": "CONNECT_FAILED",
+    "message": "...",
+    "timestamp": "2026-01-15T10:30:00.000Z"
+  },
+  "reconnect": {
+    "enabled": true,
+    "attempts": 5,
+    "maxAttempts": 5,
+    "nextAttemptAt": null,
+    "lastAttemptAt": "2026-01-15T10:29:55.000Z"
+  }
+}
+```
+
+Clients should ignore unknown fields for forward compatibility. REST `GET /api/sessions/:id/status` returns the same failure diagnostics for polling/debugging.
 
 ### Message Contact Metadata
 
