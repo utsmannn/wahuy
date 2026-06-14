@@ -137,6 +137,13 @@ curl -X POST http://localhost:7834/api/sessions/main/start -H "X-API-Key: <key>"
 curl http://localhost:7834/api/sessions/main/qr -H "X-API-Key: <key>"
 # → returns { "success": true, "data": { "qr": "data:image/png;base64,..." } }
 
+# If an Internal session is stuck in failed because its saved Baileys auth state is invalid,
+# force a fresh QR login by clearing that session auth before starting:
+curl -X POST http://localhost:7834/api/sessions/main/start \
+  -H "X-API-Key: <key>" \
+  -H "Content-Type: application/json" \
+  -d '{"resetAuth":true}'
+
 # Poll until ready
 curl http://localhost:7834/api/sessions/main/status -H "X-API-Key: <key>"
 
@@ -242,7 +249,7 @@ When a pairing QR is generated, Wahuy emits both `session:status` with `status: 
 }
 ```
 
-Clients should ignore unknown fields for forward compatibility. REST `GET /api/sessions/:id/status` returns the same failure diagnostics for polling/debugging.
+Clients should ignore unknown fields for forward compatibility. REST `GET /api/sessions/:id/status` returns the same failure diagnostics for polling/debugging. REST `POST /api/sessions/:id/start` also returns the full session info object; pass `{ "resetAuth": true }` only when you intentionally want to delete that session's saved Baileys auth files and pair again with a fresh QR.
 
 ### Message Contact Metadata
 

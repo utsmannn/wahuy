@@ -73,10 +73,21 @@ export class SessionManager extends EventEmitter {
     return Array.from(this.sessions.values()).map(c => c.getInfo());
   }
 
-  async startSession(id: string): Promise<void> {
+  async startSession(id: string, options?: { resetAuth?: boolean }): Promise<void> {
     const client = this.sessions.get(id);
     if (!client) throw new Error(`Session '${id}' not found`);
-    this.emit('session:status', { sessionId: id, status: 'starting' });
+
+    if (options?.resetAuth) {
+      await client.logout();
+    }
+
+    const info = client.getInfo();
+    this.emit('session:status', {
+      sessionId: id,
+      status: 'starting',
+      lastError: info.lastError,
+      reconnect: info.reconnect,
+    });
     await client.start();
   }
 

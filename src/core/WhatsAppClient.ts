@@ -6,12 +6,14 @@
  */
 
 import { EventEmitter } from 'events';
+import { rm } from 'fs/promises';
 import {
   makeWASocket,
   useMultiFileAuthState,
   DisconnectReason,
   makeCacheableSignalKeyStore,
   fetchLatestBaileysVersion,
+  Browsers,
   jidNormalizedUser,
   isLidUser,
   isPnUser,
@@ -96,8 +98,12 @@ export class WhatsAppClient extends EventEmitter {
   // ============================================================================
 
   async start(): Promise<void> {
+    this.cancelReconnect();
+    this.closeSocket();
     this.status = 'starting';
     this.isDestroyed = false;
+    this.autoReconnectEnabled = true;
+    this.nextReconnectAt = null;
     logger.info({ sessionId: this.id }, 'Baileys: connecting...');
     await this.connect();
   }
@@ -131,8 +137,14 @@ export class WhatsAppClient extends EventEmitter {
 
   private async connect(): Promise<void> {
     try {
-      const { version } = await fetchLatestBaileysVersion().catch(() => ({ version: [2, 3000, 0] as [number, number, number], isLatest: true }));
-      logger.debug({ sessionId: this.id, version: version.join('.') }, 'Baileys version');
+      const versionInfo = await fetchLatestBaileysVersion();
+      const { version } = versionInfo;
+      logger.info({
+        sessionId: this.id,
+        version: version.join('.'),
+        isLatest: versionInfo.isLatest,
+        versionError: versionInfo.error instanceof Error ? versionInfo.error.message : undefined,
+      }, 'Baileys version');
 
       const { state, saveCreds } = await useMultiFileAuthState(this.authDir);
       this.saveCreds = saveCreds as unknown as (creds: unknown) => Promise<void>;
@@ -144,7 +156,7 @@ export class WhatsAppClient extends EventEmitter {
           keys: makeCacheableSignalKeyStore(state.keys, logger as unknown as any),
         },
         printQRInTerminal: false,
-        browser: ['Wahuy', 'Chrome', '1.0'],
+        browser: Browsers.macOS('Chrome'),
         markOnlineOnConnect: true,
         generateHighQualityLinkPreview: true,
         retryRequestDelayMs: 1000,
@@ -196,14 +208,20 @@ export class WhatsAppClient extends EventEmitter {
 
       if (connection === 'close') {
         const err = lastDisconnect?.error;
-        const statusCode = (err as Record<string, unknown> | undefined)?.output as Record<string, unknown> | undefined;
-        const code = (statusCode as Record<string, unknown>)?.statusCode as number | undefined;
-        const shouldReconnect = code !== DisconnectReason.loggedOut;
+        const output = (err as Record<string, unknown> | undefined)?.output as Record<string, unknown> | undefined;
+        const code = output?.statusCode as number | undefined;
+        const errorData = output?.data;
+        const message = err instanceof Error ? err.message : 'Unknown disconnect error';
         const reason = code ? String(code) : 'unknown';
+        const shouldReconnect = code !== DisconnectReason.loggedOut;
 
         this.status = 'disconnected';
-        this.lastError = { code: 'DISCONNECTED', message: `Close code: ${reason}`, timestamp: new Date().toISOString() };
-        logger.warn({ sessionId: this.id, code: reason }, 'Baileys: disconnected');
+        this.lastError = {
+          code: 'DISCONNECTED',
+          message: `${message} (close code: ${reason})`,
+          timestamp: new Date().toISOString(),
+        };
+        logger.warn({ sessionId: this.id, code: reason, error: message, errorData }, 'Baileys: disconnected');
 
         if (code === DisconnectReason.loggedOut) {
           this.status = 'failed';
@@ -553,9 +571,15 @@ export class WhatsAppClient extends EventEmitter {
       try { await this.sock.logout(); } catch { /* ignore */ }
       this.closeSocket();
     }
+    this.cancelReconnect();
+    await rm(this.authDir, { recursive: true, force: true });
     this.phone = null; this.pushName = null; this.qrCode = null;
+    this.lastError = null;
+    this.reconnectAttempts = 0;
+    this.lastReconnectAttempt = null;
+    this.autoReconnectEnabled = true;
     this.status = 'created';
-    logger.info({ sessionId: this.id }, 'Logged out');
+    logger.info({ sessionId: this.id }, 'Logged out and cleared auth state');
   }
 
   // ============================================================================

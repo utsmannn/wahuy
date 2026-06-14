@@ -96,15 +96,16 @@ export async function sessionRoutes(server: FastifyInstance): Promise<void> {
   // Start session
   server.post('/:sessionId/start', async (request, reply) => {
     const { sessionId } = request.params as { sessionId: string };
+    const body = request.body as { resetAuth?: boolean } | undefined;
 
     try {
-      await sessionManager.startSession(sessionId);
+      await sessionManager.startSession(sessionId, { resetAuth: body?.resetAuth === true });
       const client = sessionManager.getSession(sessionId);
       return {
         success: true,
-        data: {
+        data: client?.getInfo() ?? {
           id: sessionId,
-          status: client?.getStatus() ?? 'starting'
+          status: 'starting'
         }
       };
     } catch (error) {

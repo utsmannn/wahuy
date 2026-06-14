@@ -220,6 +220,17 @@ curl -X POST http://localhost:7834/api/sessions/main/start \
   -H "X-API-Key: <key>"
 ```
 
+`POST /api/sessions/{id}/start` returns the full session info object, including `lastError` and `reconnect` when available. If an Internal session is stuck in `failed` because its saved Baileys auth state is invalid, request a fresh QR login by clearing that session auth before starting:
+
+```bash
+curl -X POST http://localhost:7834/api/sessions/main/start \
+  -H "X-API-Key: <key>" \
+  -H "Content-Type: application/json" \
+  -d '{"resetAuth":true}'
+```
+
+Use `resetAuth` only when the caller intentionally wants to delete the saved auth files for that session and pair again. It does not delete the session record.
+
 ### Step 3: Get QR code
 
 ```bash
