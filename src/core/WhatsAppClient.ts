@@ -16,8 +16,10 @@ import {
   isLidUser,
   isPnUser,
   jidDecode,
+  downloadContentFromMessage,
   type WASocket,
   type WAMessage,
+  type WAMessageKey,
   type ConnectionState,
   type Contact,
   type LIDMapping,
@@ -30,6 +32,33 @@ import type { SessionState, SessionInfo, SessionError } from '../types/session.j
 const RECONNECT_MAX_ATTEMPTS = 5;
 const RECONNECT_BASE_DELAY = 5000;
 const RECONNECT_MAX_DELAY = 300000;
+
+const MEDIA_MESSAGE_KEYS = ['imageMessage', 'videoMessage', 'audioMessage', 'documentMessage', 'stickerMessage'] as const;
+type MediaMessageKey = typeof MEDIA_MESSAGE_KEYS[number];
+
+type MediaContent = {
+  mediaKey?: Uint8Array | Buffer | null;
+  directPath?: string | null;
+  url?: string | null;
+  mimetype?: string | null;
+  fileName?: string | null;
+  caption?: string | null;
+};
+
+type ReadMessageKeyInput = {
+  remoteJid: string;
+  id: string;
+  fromMe?: boolean;
+  participant?: string;
+};
+
+type DownloadedMedia = {
+  data: string;
+  mimetype: string;
+  mimeType: string;
+  filename?: string;
+  caption?: string;
+};
 
 export class WhatsAppClient extends EventEmitter {
   private sock: WASocket | null = null;
@@ -52,6 +81,7 @@ export class WhatsAppClient extends EventEmitter {
   private isDestroyed = false;
   private saveCreds: ((creds: unknown) => Promise<void>) | null = null;
   private lidToPn = new Map<string, string>();
+  private profilePicUrls = new Map<string, string | null>();
 
   constructor(id: string, name?: string) {
     super();
@@ -304,37 +334,95 @@ export class WhatsAppClient extends EventEmitter {
     return jidDecode(phoneJid)?.user ?? null;
   }
 
+  private async profilePicUrlFromJid(jid?: string | null): Promise<string | null> {
+    const normalized = this.normalizeJid(jid);
+    if (!normalized || normalized.endsWith('@g.us')) return null;
+    if (this.profilePicUrls.has(normalized)) return this.profilePicUrls.get(normalized) ?? null;
+
+    try {
+      const url = await this.sock?.profilePictureUrl(normalized, 'image');
+      this.profilePicUrls.set(normalized, url || null);
+      return url || null;
+    } catch (error) {
+      this.profilePicUrls.set(normalized, null);
+      logger.debug({ sessionId: this.id, jid: normalized, error: (error as Error).message }, 'Failed to fetch profile picture');
+      return null;
+    }
+  }
+
+  private getMediaMessage(message?: Record<string, unknown>): { key: MediaMessageKey; content: MediaContent } | null {
+    for (const mediaKey of MEDIA_MESSAGE_KEYS) {
+      const content = message?.[mediaKey] as MediaContent | undefined;
+      if (content) return { key: mediaKey, content };
+    }
+    return null;
+  }
+
+  private mediaDownloadType(mediaKey: MediaMessageKey): 'image' | 'video' | 'audio' | 'document' | 'sticker' {
+    return mediaKey.replace('Message', '') as 'image' | 'video' | 'audio' | 'document' | 'sticker';
+  }
+
+  private extractMessageKey(rawData: unknown): ReadMessageKeyInput | null {
+    if (!rawData || typeof rawData !== 'object') return null;
+    const message = rawData as { key?: Partial<WAMessageKey> };
+    const key = message.key;
+    if (!key?.id || !key.remoteJid) return null;
+
+    return {
+      remoteJid: key.remoteJid,
+      id: key.id,
+      fromMe: !!key.fromMe,
+      participant: key.participant || undefined,
+    };
+  }
+
   private async formatMessage(msg: WAMessage): Promise<object> {
     const key = msg.key;
-    const m = msg.message as Record<string, any> | undefined;
+    const m = msg.message as Record<string, unknown> | undefined;
     const isFromMe = !!key.fromMe;
 
     let body = '';
     let type = 'chat';
     let hasMedia = false;
+    let media: Omit<DownloadedMedia, 'data'> | undefined;
 
     if (m) {
-      if (m.conversation) { body = m.conversation; type = 'chat'; }
-      else if (m.extendedTextMessage) { body = m.extendedTextMessage.text || ''; type = 'chat'; }
-      else if (m.imageMessage) { body = m.imageMessage.caption || ''; type = 'image'; hasMedia = true; }
-      else if (m.videoMessage) { body = m.videoMessage.caption || ''; type = 'video'; hasMedia = true; }
-      else if (m.audioMessage) { body = ''; type = 'audio'; hasMedia = true; }
-      else if (m.documentMessage) { body = m.documentMessage.caption || ''; type = 'document'; hasMedia = true; }
+      const imageMessage = m.imageMessage as MediaContent | undefined;
+      const videoMessage = m.videoMessage as MediaContent | undefined;
+      const audioMessage = m.audioMessage as MediaContent | undefined;
+      const documentMessage = m.documentMessage as MediaContent | undefined;
+
+      if (typeof m.conversation === 'string') { body = m.conversation; type = 'chat'; }
+      else if (m.extendedTextMessage) { body = ((m.extendedTextMessage as { text?: string }).text) || ''; type = 'chat'; }
+      else if (imageMessage) { body = imageMessage.caption || ''; type = 'image'; hasMedia = true; }
+      else if (videoMessage) { body = videoMessage.caption || ''; type = 'video'; hasMedia = true; }
+      else if (audioMessage) { body = ''; type = 'audio'; hasMedia = true; }
+      else if (documentMessage) { body = documentMessage.caption || ''; type = 'document'; hasMedia = true; }
       else if (m.stickerMessage) { body = ''; type = 'sticker'; hasMedia = true; }
       else if (m.locationMessage) { type = 'location'; hasMedia = true; }
-      else if (m.reactionMessage) { body = m.reactionMessage.text || ''; type = 'reaction'; }
+      else if (m.reactionMessage) { body = ((m.reactionMessage as { text?: string }).text) || ''; type = 'reaction'; }
       else if (m.contactMessage) { type = 'contact'; }
       else { type = 'unknown'; }
+
+      const mediaMessage = this.getMediaMessage(m);
+      if (mediaMessage) {
+        media = {
+          mimetype: mediaMessage.content.mimetype || 'application/octet-stream',
+          mimeType: mediaMessage.content.mimetype || 'application/octet-stream',
+          filename: mediaMessage.content.fileName || undefined,
+          caption: mediaMessage.content.caption || undefined,
+        };
+      }
     }
 
     let quotedMessage = null;
-    const ctx = m?.extendedTextMessage?.contextInfo;
+    const ctx = (m?.extendedTextMessage as { contextInfo?: { quotedMessage?: Record<string, unknown>; stanzaId?: string; participant?: string } } | undefined)?.contextInfo;
     if (ctx?.quotedMessage) {
-      const qm = ctx.quotedMessage as Record<string, any>;
+      const qm = ctx.quotedMessage;
       quotedMessage = {
         id: ctx.stanzaId || '',
         from: ctx.participant || '',
-        body: qm.conversation || qm.extendedTextMessage?.text || '',
+        body: (qm.conversation as string | undefined) || (qm.extendedTextMessage as { text?: string } | undefined)?.text || '',
         type: 'chat',
         fromMe: ctx.participant === this.id,
         hasMedia: false,
@@ -354,6 +442,10 @@ export class WhatsAppClient extends EventEmitter {
     const receiverPreferredPn = isFromMe ? keyWithAlt.remoteJidAlt : null;
     const senderPhone = await this.numberFromJid(senderJid, senderPreferredPn);
     const receiverPhone = await this.numberFromJid(receiverJid, receiverPreferredPn);
+    const [senderProfilePicUrl, receiverProfilePicUrl] = await Promise.all([
+      this.profilePicUrlFromJid(senderJid),
+      this.profilePicUrlFromJid(receiverJid),
+    ]);
 
     return {
       id: key.id || '',
@@ -364,12 +456,19 @@ export class WhatsAppClient extends EventEmitter {
       timestamp: new Date((msg.messageTimestamp as number || 0) * 1000).toISOString(),
       fromMe: isFromMe,
       hasMedia,
+      media,
       hasQuotedMsg: !!quotedMessage,
       quotedMessage,
       isForwarded: false,
+      key: {
+        remoteJid: key.remoteJid,
+        id: key.id,
+        fromMe: isFromMe,
+        participant: key.participant,
+      },
       contacts: {
-        sender: { id: senderJid, number: senderPhone, name: null, pushname: msg.pushName || null, shortName: null, isBusiness: false, isEnterprise: false, isMe: isFromMe },
-        receiver: { id: receiverJid, number: receiverPhone, name: null, pushname: null, shortName: null, isBusiness: false, isEnterprise: false, isMe: !isFromMe },
+        sender: { id: senderJid, number: senderPhone, name: null, pushname: msg.pushName || null, shortName: null, profilePicUrl: senderProfilePicUrl, isBusiness: false, isEnterprise: false, isMe: isFromMe },
+        receiver: { id: receiverJid, number: receiverPhone, name: null, pushname: null, shortName: null, profilePicUrl: receiverProfilePicUrl, isBusiness: false, isEnterprise: false, isMe: !isFromMe },
       },
     };
   }
@@ -549,12 +648,45 @@ export class WhatsAppClient extends EventEmitter {
     }
   }
 
-  async markAsRead(to: string): Promise<void> {
+  async markAsRead(to: string, messageId?: string, participant?: string, fromMe = false): Promise<void> {
+    if (!messageId) throw new Error('messageId is required to mark a chat as read');
     const jid = this.toJid(to);
-    await this.sock?.readMessages([{ remoteJid: jid, id: '', fromMe: false }]);
+    await this.readMessageKey({ remoteJid: jid, id: messageId, fromMe, participant });
   }
 
-  async markMessageAsRead(_messageId: string): Promise<void> {
-    try { await this.sock?.readMessages([{ remoteJid: '', id: _messageId, fromMe: false }]); } catch { /* ignore */ }
+  async markMessageAsRead(messageId: string, rawData?: unknown): Promise<void> {
+    const key = this.extractMessageKey(rawData);
+    if (!key) throw new Error('Stored message key not found; provide chatId and messageId');
+    if (key.id !== messageId) throw new Error('Stored message key does not match messageId');
+    await this.readMessageKey(key);
+  }
+
+  async readMessageKey(key: ReadMessageKeyInput): Promise<void> {
+    if (!key.remoteJid || !key.id) throw new Error('remoteJid and message id are required');
+    await this.sock!.readMessages([{ remoteJid: key.remoteJid, id: key.id, fromMe: !!key.fromMe, participant: key.participant }]);
+  }
+
+  async downloadMedia(rawData: unknown): Promise<DownloadedMedia> {
+    if (!rawData || typeof rawData !== 'object') throw new Error('Message data not found');
+
+    const message = rawData as { message?: Record<string, unknown> };
+    const mediaMessage = this.getMediaMessage(message.message);
+    if (!mediaMessage) throw new Error('Message does not contain downloadable media');
+
+    const stream = await downloadContentFromMessage(mediaMessage.content, this.mediaDownloadType(mediaMessage.key));
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+
+    const buffer = Buffer.concat(chunks);
+    const mimetype = mediaMessage.content.mimetype || 'application/octet-stream';
+    return {
+      data: buffer.toString('base64'),
+      mimetype,
+      mimeType: mimetype,
+      filename: mediaMessage.content.fileName || undefined,
+      caption: mediaMessage.content.caption || undefined,
+    };
   }
 }

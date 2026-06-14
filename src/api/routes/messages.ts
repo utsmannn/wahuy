@@ -390,36 +390,55 @@ export async function messageRoutes(server: FastifyInstance): Promise<void> {
     }
   });
 
-  // Mark chat/message as read (send seen / blue checkmark)
+  // Mark a message as read (send seen / blue checkmark)
   server.post('/:sessionId/read', async (request, reply) => {
     const { sessionId } = request.params as { sessionId: string };
-    const body = request.body as { chatId?: string; messageId?: string };
+    const body = request.body as {
+      chatId?: string;
+      messageId?: string;
+      remoteJid?: string;
+      participant?: string;
+      fromMe?: boolean;
+    };
 
     const validation = validateSession(sessionId, reply);
     if (!validation.success || !validation.client) return validation;
     const client = validation.client;
 
-    if (!body.chatId && !body.messageId) {
+    if (!body.messageId) {
       reply.status(400);
       return {
         success: false,
         error: {
           code: 'VALIDATION_ERROR',
-          message: 'Provide either chatId or messageId'
+          message: 'Missing required field: messageId'
         }
       };
     }
 
     try {
-      if (body.messageId) {
-        await client.markMessageAsRead(body.messageId);
-      } else if (body.chatId) {
-        await client.markAsRead(body.chatId);
+      const chatId = body.remoteJid || body.chatId;
+      if (chatId) {
+        await client.markAsRead(chatId, body.messageId, body.participant, body.fromMe ?? false);
+      } else {
+        const storedMessage = messageStorage.getMessage(body.messageId);
+        if (!storedMessage || storedMessage.sessionId !== sessionId) {
+          reply.status(404);
+          return {
+            success: false,
+            error: {
+              code: 'MESSAGE_NOT_FOUND',
+              message: `Message '${body.messageId}' not found for session '${sessionId}'`
+            }
+          };
+        }
+        await client.markMessageAsRead(body.messageId, storedMessage.rawData);
       }
+
       return {
         success: true,
         data: {
-          chatId: body.chatId,
+          chatId,
           messageId: body.messageId,
           status: 'read'
         }
@@ -432,6 +451,60 @@ export async function messageRoutes(server: FastifyInstance): Promise<void> {
         success: false,
         error: {
           code: 'READ_FAILED',
+          message: err.message
+        }
+      };
+    }
+  });
+
+  // Download received media for an Internal provider message
+  server.get('/:sessionId/messages/:messageId/media', async (request, reply) => {
+    const { sessionId, messageId } = request.params as { sessionId: string; messageId: string };
+
+    const validation = validateSession(sessionId, reply);
+    if (!validation.success || !validation.client) return validation;
+    const client = validation.client;
+
+    const storedMessage = messageStorage.getMessage(messageId);
+    if (!storedMessage || storedMessage.sessionId !== sessionId) {
+      reply.status(404);
+      return {
+        success: false,
+        error: {
+          code: 'MESSAGE_NOT_FOUND',
+          message: `Message '${messageId}' not found for session '${sessionId}'`
+        }
+      };
+    }
+
+    if (!storedMessage.hasMedia) {
+      reply.status(400);
+      return {
+        success: false,
+        error: {
+          code: 'MESSAGE_HAS_NO_MEDIA',
+          message: `Message '${messageId}' does not contain media`
+        }
+      };
+    }
+
+    try {
+      const media = await client.downloadMedia(storedMessage.rawData);
+      return {
+        success: true,
+        data: {
+          messageId,
+          media,
+        }
+      };
+    } catch (error) {
+      const err = error as Error;
+      logger.error({ sessionId, messageId, error: err.message }, 'Failed to download media');
+      reply.status(500);
+      return {
+        success: false,
+        error: {
+          code: 'MEDIA_DOWNLOAD_FAILED',
           message: err.message
         }
       };

@@ -13,6 +13,7 @@ export interface ContactInfo {
   name: string | null;
   pushname: string | null;
   shortName: string | null;
+  profilePicUrl?: string | null;
   isBusiness: boolean;
   isEnterprise: boolean;
   isMe: boolean;
@@ -36,6 +37,16 @@ export interface StoredMessage {
     sender: ContactInfo | null;
     receiver: ContactInfo | null;
   };
+  media?: {
+    id?: string;
+    url?: string;
+    data?: string;
+    mimetype?: string;
+    mimeType?: string;
+    filename?: string;
+    caption?: string;
+  };
+  rawData?: unknown;
 }
 
 export interface MessageQuery {
@@ -148,6 +159,59 @@ class MessageStorageImpl {
     }
   }
 
+  private mapRow(row: {
+    id: string;
+    session_id: string;
+    from_jid: string;
+    to_jid: string;
+    body: string;
+    type: string;
+    timestamp: string;
+    from_me: number;
+    has_media: number;
+    media_type: string | null;
+    media_path: string | null;
+    quoted_message_id: string | null;
+    received_at: string;
+    data: string | null;
+  }, includeRawData = false): StoredMessage {
+    let contacts: StoredMessage['contacts'] = undefined;
+    let media: StoredMessage['media'] = undefined;
+    let rawData: unknown;
+
+    if (row.data) {
+      try {
+        rawData = JSON.parse(row.data) as { contacts?: StoredMessage['contacts']; media?: StoredMessage['media'] };
+        if (rawData && typeof rawData === 'object') {
+          const parsed = rawData as { contacts?: StoredMessage['contacts']; media?: StoredMessage['media'] };
+          contacts = parsed.contacts;
+          media = parsed.media;
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+
+    return {
+      id: row.id,
+      sessionId: row.session_id,
+      from: row.from_jid,
+      to: row.to_jid,
+      body: row.body,
+      type: row.type,
+      timestamp: row.timestamp,
+      fromMe: row.from_me === 1,
+      hasMedia: row.has_media === 1,
+      mediaType: row.media_type || undefined,
+      mediaPath: row.media_path || undefined,
+      quotedMessageId: row.quoted_message_id || undefined,
+      receivedAt: row.received_at,
+      contacts,
+      media,
+      rawData: includeRawData ? rawData : undefined,
+    };
+  }
+
   /**
    * Query messages with flexible filters
    */
@@ -233,37 +297,7 @@ class MessageStorageImpl {
       data: string | null;
     }>;
 
-    return rows.map(row => {
-      // Parse contacts from raw data JSON
-      let contacts: StoredMessage['contacts'] = undefined;
-      if (row.data) {
-        try {
-          const rawData = JSON.parse(row.data);
-          if (rawData.contacts) {
-            contacts = rawData.contacts;
-          }
-        } catch {
-          // Ignore parse errors
-        }
-      }
-
-      return {
-        id: row.id,
-        sessionId: row.session_id,
-        from: row.from_jid,
-        to: row.to_jid,
-        body: row.body,
-        type: row.type,
-        timestamp: row.timestamp,
-        fromMe: row.from_me === 1,
-        hasMedia: row.has_media === 1,
-        mediaType: row.media_type || undefined,
-        mediaPath: row.media_path || undefined,
-        quotedMessageId: row.quoted_message_id || undefined,
-        receivedAt: row.received_at,
-        contacts,
-      };
-    });
+    return rows.map(row => this.mapRow(row));
   }
 
   /**
@@ -308,37 +342,7 @@ class MessageStorageImpl {
       data: string | null;
     }>;
 
-    return rows.map(row => {
-      // Parse contacts from raw data JSON
-      let contacts: StoredMessage['contacts'] = undefined;
-      if (row.data) {
-        try {
-          const rawData = JSON.parse(row.data);
-          if (rawData.contacts) {
-            contacts = rawData.contacts;
-          }
-        } catch {
-          // Ignore parse errors
-        }
-      }
-
-      return {
-        id: row.id,
-        sessionId: row.session_id,
-        from: row.from_jid,
-        to: row.to_jid,
-        body: row.body,
-        type: row.type,
-        timestamp: row.timestamp,
-        fromMe: row.from_me === 1,
-        hasMedia: row.has_media === 1,
-        mediaType: row.media_type || undefined,
-        mediaPath: row.media_path || undefined,
-        quotedMessageId: row.quoted_message_id || undefined,
-        receivedAt: row.received_at,
-        contacts,
-      };
-    });
+    return rows.map(row => this.mapRow(row));
   }
 
   /**
@@ -385,35 +389,7 @@ class MessageStorageImpl {
 
     if (!row) return null;
 
-    // Parse contacts from raw data JSON
-    let contacts: StoredMessage['contacts'] = undefined;
-    if (row.data) {
-      try {
-        const rawData = JSON.parse(row.data);
-        if (rawData.contacts) {
-          contacts = rawData.contacts;
-        }
-      } catch {
-        // Ignore parse errors
-      }
-    }
-
-    return {
-      id: row.id,
-      sessionId: row.session_id,
-      from: row.from_jid,
-      to: row.to_jid,
-      body: row.body,
-      type: row.type,
-      timestamp: row.timestamp,
-      fromMe: row.from_me === 1,
-      hasMedia: row.has_media === 1,
-      mediaType: row.media_type || undefined,
-      mediaPath: row.media_path || undefined,
-      quotedMessageId: row.quoted_message_id || undefined,
-      receivedAt: row.received_at,
-      contacts,
-    };
+    return this.mapRow(row, true);
   }
 
   /**

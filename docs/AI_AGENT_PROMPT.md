@@ -171,7 +171,8 @@ Meta webhook: http://<host>:7834/webhooks/whatsapp
 | `POST` | `/api/sessions/{id}/messages/send-document` | Send base64 document. |
 | `POST` | `/api/sessions/{id}/messages/reply` | Reply to a message. |
 | `POST` | `/api/sessions/{id}/typing` | Send typing indicator. |
-| `POST` | `/api/sessions/{id}/read` | Mark chat/message read. |
+| `POST` | `/api/sessions/{id}/read` | Mark a message read. Requires `messageId`; can resolve the key from stored history or accept explicit `chatId`/`remoteJid`. |
+| `GET` | `/api/sessions/{id}/messages/{messageId}/media` | Download Internal received media as base64. |
 | `GET` | `/api/sessions/messages/history` | Query persisted message history. |
 | `GET` | `/api/sessions/{id}/conversations/{phone}` | Get stored conversation with a phone. |
 | `GET/POST` | `/api/webhooks` | List/create outbound webhooks. **Creating requires `sessions`**. |
@@ -274,6 +275,64 @@ Recipient formats for sending:
 | Group identifier | `123456789@g.us` | Group chat target. |
 
 Do not infer phone numbers from inbound identifiers. Incoming IDs such as `@lid` are opaque WhatsApp identities, not phone-number strings.
+
+### Send typing indicator
+
+```bash
+curl -X POST http://localhost:7834/api/sessions/main/typing \
+  -H "X-API-Key: <key>" \
+  -H "Content-Type: application/json" \
+  -d '{"to":"6281234567890","duration":3000}'
+```
+
+### Mark a message as read
+
+Use the message ID from `message.received`, WebSocket events, or REST history. Wahuy stores the original Baileys message key and uses that key for the read receipt.
+
+```bash
+curl -X POST http://localhost:7834/api/sessions/main/read \
+  -H "X-API-Key: <key>" \
+  -H "Content-Type: application/json" \
+  -d '{"messageId":"BAE5..."}'
+```
+
+If the message is not in history, pass the chat identity explicitly:
+
+```bash
+curl -X POST http://localhost:7834/api/sessions/main/read \
+  -H "X-API-Key: <key>" \
+  -H "Content-Type: application/json" \
+  -d '{"chatId":"12345@lid","messageId":"BAE5...","participant":"67890@lid"}'
+```
+
+`chatId` and `participant` are WhatsApp identifiers from Wahuy/Baileys events. Treat them as opaque IDs.
+
+### Download received media in Internal mode
+
+Incoming media events/history include metadata under `media`. Fetch the base64 payload on demand:
+
+```bash
+curl http://localhost:7834/api/sessions/main/messages/BAE5.../media \
+  -H "X-API-Key: <key>"
+```
+
+Response shape:
+
+```json
+{
+  "success": true,
+  "data": {
+    "messageId": "BAE5...",
+    "media": {
+      "data": "<base64>",
+      "mimetype": "image/jpeg",
+      "mimeType": "image/jpeg",
+      "filename": "photo.jpg",
+      "caption": "optional caption"
+    }
+  }
+}
+```
 
 ---
 
@@ -409,7 +468,8 @@ curl -X POST http://localhost:7834/api/webhooks \
       "sender": {
         "id": "12345@lid",
         "number": "6281234567890",
-        "pushname": "Jane"
+        "pushname": "Jane",
+        "profilePicUrl": "https://mmg.whatsapp.net/..."
       },
       "receiver": {
         "id": "98765@lid",
@@ -420,7 +480,7 @@ curl -X POST http://localhost:7834/api/webhooks \
 }
 ```
 
-Internal mode preserves Baileys identifiers in `from`, `to`, and `contacts.*.id`. Treat those fields as opaque WhatsApp identifiers, not phone-number strings. Use `contacts.*.number` only when you specifically need the phone number; it is populated only when Baileys explicitly provides a trusted mapping. If no mapping exists yet, the number is `null`.
+Internal mode preserves Baileys identifiers in `from`, `to`, and `contacts.*.id`. Treat those fields as opaque WhatsApp identifiers, not phone-number strings. Use `contacts.*.number` only when you specifically need the phone number; it is populated only when Baileys explicitly provides a trusted mapping. If no mapping exists yet, the number is `null`. When WhatsApp allows access, Wahuy also fills `contacts.*.profilePicUrl` from Baileys `profilePictureUrl`.
 
 ### Verify webhook signatures
 
@@ -482,6 +542,7 @@ Wahuy's Internal provider follows this rule:
 | `from` / `to` | Baileys message identity. Usually an opaque WhatsApp ID such as `@lid`. |
 | `contacts.sender.id` / `contacts.receiver.id` | Contact identity matching the message identity. Usually `@lid`. |
 | `contacts.sender.number` / `contacts.receiver.number` | Phone number only when Baileys explicitly provides one; otherwise `null`. |
+| `contacts.sender.profilePicUrl` / `contacts.receiver.profilePicUrl` | Profile picture URL from Baileys `profilePictureUrl` when WhatsApp allows access; otherwise `null`. |
 
 The phone number may come from Baileys metadata such as `remoteJidAlt`, `participantAlt`, `senderPn`, contact sync, history sync, `lid-mapping.update`, or the Baileys LID mapping store. These are trusted metadata sources from Baileys; they are not derived from the visible `@lid` value.
 

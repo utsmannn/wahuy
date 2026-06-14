@@ -207,10 +207,12 @@ function wireSessionEvents(): void {
       timestamp: data.message.timestamp,
       fromMe: data.message.fromMe || false,
       hasMedia: data.message.hasMedia || false,
-      mediaType: data.message.mediaType,
+      mediaType: data.message.media?.mimeType || data.message.media?.mimetype || data.message.mediaType,
       mediaPath: data.message.mediaPath,
       quotedMessageId: data.message.quotedMessage?.id,
       receivedAt: new Date().toISOString(),
+      contacts: data.message.contacts,
+      media: data.message.media,
     };
     messageStorage.saveMessage(storedMessage, data.message);
 
@@ -236,10 +238,12 @@ function wireSessionEvents(): void {
       timestamp: data.message.timestamp,
       fromMe: true,
       hasMedia: data.message.hasMedia || false,
-      mediaType: data.message.mediaType,
+      mediaType: data.message.media?.mimeType || data.message.media?.mimetype || data.message.mediaType,
       mediaPath: data.message.mediaPath,
       quotedMessageId: data.message.quotedMessage?.id,
       receivedAt: new Date().toISOString(),
+      contacts: data.message.contacts,
+      media: data.message.media,
     };
     messageStorage.saveMessage(storedMessage, data.message);
 

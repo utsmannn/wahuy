@@ -58,6 +58,7 @@ export interface ContactInfo {
   name: string | null;
   pushname: string | null;
   shortName: string | null;
+  profilePicUrl?: string | null;
   isBusiness: boolean;
   isEnterprise: boolean;
   isMe: boolean;
@@ -77,9 +78,13 @@ export interface Message {
     receiver: ContactInfo | null;
   };
   media?: {
-    data: string;
-    mimetype: string;
+    id?: string;
+    url?: string;
+    data?: string;
+    mimetype?: string;
+    mimeType?: string;
     filename?: string;
+    caption?: string;
   };
   sessionId?: string;
   receivedAt?: string;

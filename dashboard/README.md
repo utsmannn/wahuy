@@ -10,7 +10,8 @@ React + Vite dashboard for managing Wahuy sessions, realtime pairing, messages, 
 - Open/update the QR modal without manual refresh when QR rotates.
 - Close stale QR modal/state when a session becomes `ready`, `disconnected`, `stopped`, or `failed`.
 - Send messages from ready sessions.
-- View recent messages, including resolved `contacts.*.number` when Baileys provides LID→PN mapping.
+- View recent messages, including resolved `contacts.*.number` and `contacts.*.profilePicUrl` when Baileys provides them.
+- Render inline media only when the message payload includes base64 media data; otherwise it shows a media placeholder.
 - Manage provider mode and outbound webhooks.
 
 ## Realtime behavior
@@ -44,7 +45,7 @@ Important events:
 
 ## Message display
 
-Incoming messages can use Baileys v7 LID identifiers (`12345@lid`). The dashboard displays `message.contacts.sender.number` only when Baileys explicitly provides a trusted phone mapping. It does not derive phone numbers from identifiers. If no mapping is available yet, it falls back to showing the opaque identifier.
+Incoming messages can use Baileys v7 LID identifiers (`12345@lid`). The dashboard displays `message.contacts.sender.number` only when Baileys explicitly provides a trusted phone mapping, and shows `message.contacts.sender.profilePicUrl` when Baileys can fetch it. It does not derive phone numbers from identifiers. If no mapping is available yet, it falls back to showing the opaque identifier.
 
 ## Development
 

@@ -26,7 +26,7 @@ flowchart LR
 
 **Wahuy is the middle layer.** Apps call simple HTTP endpoints. Wahuy handles WhatsApp sessions, provider routing, message sending, media, realtime events, webhook forwarding, and persistence.
 
-**Key difference from calling Meta directly:** Wahuy can run in either unofficial multi-session QR mode for fast automation, or Official Cloud API proxy mode for production WABA integrations. Internal mode uses Baileys — a direct WebSocket-based library — so no Chromium/Puppeteer needed. Baileys identifiers are preserved as message identity; Wahuy only fills `contacts.*.number` when Baileys explicitly provides a trusted phone mapping.
+**Key difference from calling Meta directly:** Wahuy can run in either unofficial multi-session QR mode for fast automation, or Official Cloud API proxy mode for production WABA integrations. Internal mode uses Baileys — a direct WebSocket-based library — so no Chromium/Puppeteer needed. Baileys identifiers are preserved as message identity; Wahuy fills `contacts.*.number` only from trusted Baileys phone mapping and `contacts.*.profilePicUrl` only when WhatsApp allows profile-photo access.
 
 ### Core Features
 
@@ -39,7 +39,7 @@ flowchart LR
 | **Events** | WebSocket push + outbound webhooks with HMAC signature + REST history. |
 | **Persistence** | Session auth files + SQLite message and webhook logs under `data/`. |
 | **Dashboard** | Built-in React dashboard with realtime QR pairing, session manager, provider switcher, and message viewer. |
-| **Contact Metadata** | Preserves Baileys LID identity while resolving phone numbers when WhatsApp provides PN mapping. |
+| **Contact Metadata** | Preserves Baileys LID identity while adding trusted phone numbers and profile photo URLs when Baileys/WhatsApp provides them. |
 | **Small Image** | Only ~350MB Docker image — no Chromium needed. |
 
 ---
@@ -111,7 +111,7 @@ Open **http://localhost:7834** for the dashboard when `DASHBOARD_ENABLED=true`.
 | Health | `GET /api/health` · `GET /api/health/ready` · `GET /api/health/live` |
 | Provider | `GET /api/provider` · `POST /api/provider/switch` · `POST /api/provider/test` |
 | Sessions | `GET/POST /api/sessions` · `POST /api/sessions/:id/start` · `GET /api/sessions/:id/qr` · `POST /api/sessions/:id/stop` |
-| Internal Messages | `POST /api/sessions/:id/messages/send` · `/send-image` · `/send-document` · `/reply` · `POST /typing` · `POST /read` |
+| Internal Messages | `POST /api/sessions/:id/messages/send` · `/send-image` · `/send-document` · `/reply` · `POST /typing` · `POST /read` · `GET /messages/:messageId/media` |
 | History | `GET /api/sessions/messages/history` · `GET /api/sessions/:id/conversations/:phone` · `GET /api/sessions/messages/stats` |
 | Webhooks | `GET/POST /api/webhooks` · `PUT/DELETE /api/webhooks/:id` · `POST /api/webhooks/:id/test` · `GET /api/webhooks/logs` |
 | Official API | `POST /v1/messages` · `GET/POST /v1/media` · `GET/POST/PATCH/DELETE /v1/groups` |
@@ -194,6 +194,14 @@ Wahuy provides three independent event channels — pick the ones that fit your 
 
 You do **not** need to use webhooks to receive events. WebSocket and REST cover most use cases. Webhooks are ideal when your receiver can't maintain a persistent connection.
 
+### Indicators and received media
+
+- Typing indicator: `POST /api/sessions/:id/typing` with `{ "to": "6281234567890", "duration": 3000 }`.
+- Read indicator: `POST /api/sessions/:id/read` with at least `{ "messageId": "..." }`. Wahuy uses the stored Baileys message key when available; callers can also pass `chatId`/`remoteJid` and `participant` explicitly.
+- Internal received media: incoming events/history include media metadata when present. Download the base64 payload with `GET /api/sessions/:id/messages/:messageId/media`.
+- Official received media: use the existing Cloud API-compatible `GET /v1/media/:mediaId` endpoint.
+- Contact profile photos: Internal-mode message contacts include `contacts.*.profilePicUrl` when Baileys `profilePictureUrl` can fetch one for that participant/contact.
+
 ### WebSocket Events
 
 ```js
@@ -216,7 +224,7 @@ When a pairing QR is generated, Wahuy emits both `session:status` with `status: 
 
 Internal-mode messages may use Baileys v7 LID identifiers such as `12345@lid`. Wahuy keeps those identifiers in `from`, `to`, and `contacts.*.id` so callers can track the exact WhatsApp identity. Treat them as opaque IDs, not phone-number strings.
 
-Phone numbers are exposed only in `contacts.*.number` when Baileys explicitly provides trusted metadata via `remoteJidAlt`, `participantAlt`, `senderPn`, contact sync, history sync, `lid-mapping.update`, or the Baileys mapping store. If no mapping exists yet, `contacts.*.number` is `null` instead of a fake number derived from the visible identifier.
+Phone numbers are exposed only in `contacts.*.number` when Baileys explicitly provides trusted metadata via `remoteJidAlt`, `participantAlt`, `senderPn`, contact sync, history sync, `lid-mapping.update`, or the Baileys mapping store. If no mapping exists yet, `contacts.*.number` is `null` instead of a fake number derived from the visible identifier. When WhatsApp allows access, Wahuy also fills `contacts.*.profilePicUrl` from Baileys `profilePictureUrl`.
 
 ### Webhook Payload Format
 
@@ -236,7 +244,8 @@ Phone numbers are exposed only in `contacts.*.number` when Baileys explicitly pr
       "sender": {
         "id": "12345@lid",
         "number": "6281234567890",
-        "pushname": "Jane"
+        "pushname": "Jane",
+        "profilePicUrl": "https://mmg.whatsapp.net/..."
       },
       "receiver": {
         "id": "98765@lid",

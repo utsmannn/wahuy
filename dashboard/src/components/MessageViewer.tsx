@@ -20,16 +20,20 @@ export function MessageViewer({ messages, onClear, sessions }: MessageViewerProp
     return match && (!selSess || m.sessionId === selSess);
   });
 
+  const displayContact = (msg: Message) => msg.fromMe ? msg.contacts?.receiver : msg.contacts?.sender;
+
   const fmtPhone = (msg: Message) => {
-    const contact = msg.fromMe ? msg.contacts?.receiver : msg.contacts?.sender;
+    const contact = displayContact(msg);
     return contact?.number || msg.from?.replace('@c.us', '').replace('@s.whatsapp.net', '').replace('@g.us', '') || '?';
   };
   const fmtTime = (t: string) => { try { return new Date(t).toLocaleString(); } catch { return t; } };
 
+  const mediaMime = (msg: Message) => msg.media?.mimetype || msg.media?.mimeType || 'application/octet-stream';
+
   const downloadMedia = (msg: Message) => {
-    if (!msg.media) return;
+    if (!msg.media?.data) return;
     const a = document.createElement('a');
-    a.href = `data:${msg.media.mimetype};base64,${msg.media.data}`;
+    a.href = `data:${mediaMime(msg)};base64,${msg.media.data}`;
     a.download = msg.media.filename || 'download';
     a.click();
   };
@@ -61,6 +65,9 @@ export function MessageViewer({ messages, onClear, sessions }: MessageViewerProp
           {filtered.map((msg, i) => (
             <div key={`${msg.id}-${i}`} className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 p-3">
               <div className="flex items-start justify-between gap-3">
+                {displayContact(msg)?.profilePicUrl && (
+                  <img src={displayContact(msg)?.profilePicUrl || ''} alt="" className="h-8 w-8 rounded-full object-cover border border-gray-200 dark:border-gray-700" />
+                )}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className={`text-xs font-semibold ${msg.fromMe ? 'text-gray-900 dark:text-white' : 'text-gray-500'}`}>
@@ -72,11 +79,11 @@ export function MessageViewer({ messages, onClear, sessions }: MessageViewerProp
                     )}
                   </div>
                   <p className="text-sm text-gray-700 dark:text-gray-300 break-words">{msg.body || (msg.hasMedia && <span className="text-gray-400 italic">Media</span>)}</p>
-                  {msg.hasMedia && msg.media && (
+                  {msg.hasMedia && msg.media?.data && (
                     <div className="mt-2 flex items-center gap-2">
-                      {msg.media.mimetype?.startsWith('image/') ? (
+                      {mediaMime(msg).startsWith('image/') ? (
                         <div className="relative group">
-                          <img src={`data:${msg.media.mimetype};base64,${msg.media.data}`} alt="" className="max-h-40 rounded-lg border border-gray-200 dark:border-gray-700" />
+                          <img src={`data:${mediaMime(msg)};base64,${msg.media.data}`} alt="" className="max-h-40 rounded-lg border border-gray-200 dark:border-gray-700" />
                           <button onClick={() => downloadMedia(msg)}
                             className="absolute bottom-2 right-2 px-2 py-1 bg-gray-900/80 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
                             <Download size={11} /> Save
@@ -91,7 +98,7 @@ export function MessageViewer({ messages, onClear, sessions }: MessageViewerProp
                     </div>
                   )}
                 </div>
-                {msg.hasMedia && !msg.media && (
+                {msg.hasMedia && !msg.media?.data && (
                   <div className="text-gray-300 dark:text-gray-600"><Image size={14} /></div>
                 )}
               </div>

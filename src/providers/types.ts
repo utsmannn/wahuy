@@ -307,6 +307,7 @@ export interface ContactInfo {
   name: string | null;
   pushname: string | null;
   shortName: string | null;
+  profilePicUrl?: string | null;
   isBusiness: boolean;
   isEnterprise: boolean;
   isMe: boolean;
