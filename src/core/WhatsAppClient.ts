@@ -81,6 +81,7 @@ export class WhatsAppClient extends EventEmitter {
   private lastReconnectAttempt: Date | null = null;
   private autoReconnectEnabled = true;
   private isDestroyed = false;
+  private authStateInvalid = false;
   private saveCreds: ((creds: unknown) => Promise<void>) | null = null;
   private lidToPn = new Map<string, string>();
   private profilePicUrls = new Map<string, string | null>();
@@ -100,6 +101,11 @@ export class WhatsAppClient extends EventEmitter {
   async start(): Promise<void> {
     this.cancelReconnect();
     this.closeSocket();
+
+    if (this.authStateInvalid) {
+      await this.clearAuthState('previous auth state was rejected');
+    }
+
     this.status = 'starting';
     this.isDestroyed = false;
     this.autoReconnectEnabled = true;
@@ -129,6 +135,20 @@ export class WhatsAppClient extends EventEmitter {
       try { this.sock.end(undefined); } catch { /* ignore */ }
       this.sock = null;
     }
+  }
+
+  private async clearAuthState(reason: string): Promise<void> {
+    this.cancelReconnect();
+    this.closeSocket();
+    await rm(this.authDir, { recursive: true, force: true });
+    this.phone = null;
+    this.pushName = null;
+    this.qrCode = null;
+    this.reconnectAttempts = 0;
+    this.nextReconnectAt = null;
+    this.lastReconnectAttempt = null;
+    this.authStateInvalid = false;
+    logger.info({ sessionId: this.id, reason }, 'Cleared Baileys auth state');
   }
 
   // ============================================================================
@@ -225,6 +245,8 @@ export class WhatsAppClient extends EventEmitter {
 
         if (code === DisconnectReason.loggedOut) {
           this.status = 'failed';
+          this.authStateInvalid = true;
+          this.emit('status', 'failed');
           this.emit('auth_failure', 'Logged out');
           return;
         }
@@ -571,15 +593,11 @@ export class WhatsAppClient extends EventEmitter {
       try { await this.sock.logout(); } catch { /* ignore */ }
       this.closeSocket();
     }
-    this.cancelReconnect();
-    await rm(this.authDir, { recursive: true, force: true });
-    this.phone = null; this.pushName = null; this.qrCode = null;
+    await this.clearAuthState('logout requested');
     this.lastError = null;
-    this.reconnectAttempts = 0;
-    this.lastReconnectAttempt = null;
     this.autoReconnectEnabled = true;
     this.status = 'created';
-    logger.info({ sessionId: this.id }, 'Logged out and cleared auth state');
+    logger.info({ sessionId: this.id }, 'Logged out');
   }
 
   // ============================================================================

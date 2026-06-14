@@ -41,7 +41,7 @@ Important events:
 | `session:status` | Update session status, clear QR/modal on non-QR terminal states. May include `reason`, `lastError`, and `reconnect` diagnostics. |
 | `message:received` | Prepend live message to message viewer. |
 
-`GET /api/sessions/:id/qr` is still used as a fallback if the session is already `scan_qr` but the WebSocket QR payload has not arrived. For failed starts, `session:status` can include additive diagnostics (`reason`, `lastError`, `reconnect`); REST `GET /api/sessions/:id/status` returns the same details for polling/debugging. REST `POST /api/sessions/:id/start` accepts `{ "resetAuth": true }` for intentionally clearing saved Baileys auth and forcing a fresh QR login.
+`GET /api/sessions/:id/qr` is still used as a fallback if the session is already `scan_qr` but the WebSocket QR payload has not arrived. For failed starts, `session:status` can include additive diagnostics (`reason`, `lastError`, `reconnect`); REST `GET /api/sessions/:id/status` returns the same details for polling/debugging. If Baileys reports `401`/logged-out, the next start automatically clears the rejected auth state before connecting. REST `POST /api/sessions/:id/start` also accepts `{ "resetAuth": true }` for intentionally forcing a fresh QR login.
 
 ## Message display
 

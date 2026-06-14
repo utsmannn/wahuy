@@ -249,7 +249,7 @@ When a pairing QR is generated, Wahuy emits both `session:status` with `status: 
 }
 ```
 
-Clients should ignore unknown fields for forward compatibility. REST `GET /api/sessions/:id/status` returns the same failure diagnostics for polling/debugging. REST `POST /api/sessions/:id/start` also returns the full session info object; pass `{ "resetAuth": true }` only when you intentionally want to delete that session's saved Baileys auth files and pair again with a fresh QR.
+Clients should ignore unknown fields for forward compatibility. REST `GET /api/sessions/:id/status` returns the same failure diagnostics for polling/debugging. REST `POST /api/sessions/:id/start` also returns the full session info object. If Baileys reports `401`/logged-out, Wahuy marks that saved auth state invalid and the next start automatically clears it so the session can pair again with a fresh QR. Pass `{ "resetAuth": true }` only when you intentionally want to force-delete that session's saved Baileys auth files before starting.
 
 ### Message Contact Metadata
 

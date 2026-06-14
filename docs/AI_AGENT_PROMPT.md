@@ -229,7 +229,7 @@ curl -X POST http://localhost:7834/api/sessions/main/start \
   -d '{"resetAuth":true}'
 ```
 
-Use `resetAuth` only when the caller intentionally wants to delete the saved auth files for that session and pair again. It does not delete the session record.
+Use `resetAuth` only when the caller intentionally wants to delete the saved auth files for that session and pair again. It does not delete the session record. If Baileys reports `401`/logged-out, Wahuy marks the saved auth state invalid and the next normal start automatically clears it before connecting, so integrations do not need to send `resetAuth` after a logged-out failure.
 
 ### Step 3: Get QR code
 
