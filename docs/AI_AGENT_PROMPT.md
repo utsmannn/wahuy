@@ -525,7 +525,7 @@ curl -X POST http://localhost:7834/api/webhooks \
 }
 ```
 
-Internal mode preserves Baileys identifiers in `from`, `to`, and `contacts.*.id`. Treat those fields as opaque WhatsApp identifiers, not phone-number strings. Use `contacts.*.number` only when you specifically need the phone number; it is populated only when Baileys explicitly provides a trusted mapping. If no mapping exists yet, the number is `null`. When WhatsApp allows access, Wahuy also fills `contacts.*.profilePicUrl` from Baileys `profilePictureUrl`.
+Internal mode preserves Baileys identifiers in `from`, `to`, and `contacts.*.id`. Treat those fields as opaque WhatsApp identifiers, not phone-number strings. Use `contacts.*.number` only when you specifically need the phone number; it is populated only when Baileys explicitly provides a trusted mapping. If no mapping exists yet, the number is `null`. `contacts.*.profilePicUrl` is best-effort cached metadata: it may be `null` on the first event for a contact while Wahuy fetches the photo in the background, then appear on later events when cached.
 
 ### Verify webhook signatures
 

@@ -207,7 +207,7 @@ You do **not** need to use webhooks to receive events. WebSocket and REST cover 
 - Read indicator: `POST /api/sessions/:id/read` with at least `{ "messageId": "..." }`. Wahuy uses the stored Baileys message key when available; callers can also pass `chatId`/`remoteJid` and `participant` explicitly.
 - Internal received media: incoming events/history include media metadata when present. Download the base64 payload with `GET /api/sessions/:id/messages/:messageId/media`.
 - Official received media: use the existing Cloud API-compatible `GET /v1/media/:mediaId` endpoint.
-- Contact profile photos: Internal-mode message contacts include `contacts.*.profilePicUrl` when Baileys `profilePictureUrl` can fetch one for that participant/contact.
+- Contact profile photos: Internal-mode message contacts include `contacts.*.profilePicUrl` when Wahuy already has a cached Baileys profile-photo URL for that participant/contact. Missing values are `null`; Wahuy fetches photos in the background so incoming message delivery is not delayed.
 
 ### WebSocket Events
 
@@ -255,7 +255,7 @@ Clients should ignore unknown fields for forward compatibility. REST `GET /api/s
 
 Internal-mode messages may use Baileys v7 LID identifiers such as `12345@lid`. Wahuy keeps those identifiers in `from`, `to`, and `contacts.*.id` so callers can track the exact WhatsApp identity. Treat them as opaque IDs, not phone-number strings.
 
-Phone numbers are exposed only in `contacts.*.number` when Baileys explicitly provides trusted metadata via `remoteJidAlt`, `participantAlt`, `senderPn`, contact sync, history sync, `lid-mapping.update`, or the Baileys mapping store. If no mapping exists yet, `contacts.*.number` is `null` instead of a fake number derived from the visible identifier. When WhatsApp allows access, Wahuy also fills `contacts.*.profilePicUrl` from Baileys `profilePictureUrl`.
+Phone numbers are exposed only in `contacts.*.number` when Baileys explicitly provides trusted metadata via `remoteJidAlt`, `participantAlt`, `senderPn`, contact sync, history sync, `lid-mapping.update`, or the Baileys mapping store. If no mapping exists yet, `contacts.*.number` is `null` instead of a fake number derived from the visible identifier. `contacts.*.profilePicUrl` is best-effort cached metadata: it can be `null` on the first event for a contact while Wahuy fetches the photo in the background, then appear on later events when cached.
 
 ### Webhook Payload Format
 

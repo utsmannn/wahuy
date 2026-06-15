@@ -45,7 +45,7 @@ Important events:
 
 ## Message display
 
-Incoming messages can use Baileys v7 LID identifiers (`12345@lid`). The dashboard displays `message.contacts.sender.number` only when Baileys explicitly provides a trusted phone mapping, and shows `message.contacts.sender.profilePicUrl` when Baileys can fetch it. It does not derive phone numbers from identifiers. If no mapping is available yet, it falls back to showing the opaque identifier.
+Incoming messages can use Baileys v7 LID identifiers (`12345@lid`). The dashboard displays `message.contacts.sender.number` only when Baileys explicitly provides a trusted phone mapping, and shows `message.contacts.sender.profilePicUrl` when Wahuy already has a cached profile-photo URL. It does not derive phone numbers from identifiers. If no mapping is available yet, it falls back to showing the opaque identifier. Profile photos are fetched in the background, so first-time messages can show no photo until a later cached event.
 
 ## Development
 

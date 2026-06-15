@@ -85,6 +85,7 @@ export class WhatsAppClient extends EventEmitter {
   private saveCreds: ((creds: unknown) => Promise<void>) | null = null;
   private lidToPn = new Map<string, string>();
   private profilePicUrls = new Map<string, string | null>();
+  private profilePicFetches = new Set<string>();
 
   constructor(id: string, name?: string) {
     super();
@@ -374,20 +375,33 @@ export class WhatsAppClient extends EventEmitter {
     return jidDecode(phoneJid)?.user ?? null;
   }
 
-  private async profilePicUrlFromJid(jid?: string | null): Promise<string | null> {
+  private cachedProfilePicUrlFromJid(jid?: string | null): string | null {
     const normalized = this.normalizeJid(jid);
     if (!normalized || normalized.endsWith('@g.us')) return null;
-    if (this.profilePicUrls.has(normalized)) return this.profilePicUrls.get(normalized) ?? null;
 
-    try {
-      const url = await this.sock?.profilePictureUrl(normalized, 'image');
-      this.profilePicUrls.set(normalized, url || null);
-      return url || null;
-    } catch (error) {
-      this.profilePicUrls.set(normalized, null);
-      logger.debug({ sessionId: this.id, jid: normalized, error: (error as Error).message }, 'Failed to fetch profile picture');
-      return null;
+    if (this.profilePicUrls.has(normalized)) {
+      return this.profilePicUrls.get(normalized) ?? null;
     }
+
+    this.fetchProfilePicUrl(normalized);
+    return null;
+  }
+
+  private fetchProfilePicUrl(jid: string): void {
+    if (this.profilePicFetches.has(jid)) return;
+
+    this.profilePicFetches.add(jid);
+    void this.sock?.profilePictureUrl(jid, 'image')
+      .then((url) => {
+        this.profilePicUrls.set(jid, url || null);
+      })
+      .catch((error) => {
+        this.profilePicUrls.set(jid, null);
+        logger.debug({ sessionId: this.id, jid, error: (error as Error).message }, 'Failed to fetch profile picture');
+      })
+      .finally(() => {
+        this.profilePicFetches.delete(jid);
+      });
   }
 
   private getMediaMessage(message?: Record<string, unknown>): { key: MediaMessageKey; content: MediaContent } | null {
@@ -480,12 +494,12 @@ export class WhatsAppClient extends EventEmitter {
       ? keyWithAlt.participantAlt || keyWithAlt.senderPn
       : keyWithAlt.remoteJidAlt || keyWithAlt.senderPn;
     const receiverPreferredPn = isFromMe ? keyWithAlt.remoteJidAlt : null;
-    const senderPhone = await this.numberFromJid(senderJid, senderPreferredPn);
-    const receiverPhone = await this.numberFromJid(receiverJid, receiverPreferredPn);
-    const [senderProfilePicUrl, receiverProfilePicUrl] = await Promise.all([
-      this.profilePicUrlFromJid(senderJid),
-      this.profilePicUrlFromJid(receiverJid),
+    const [senderPhone, receiverPhone] = await Promise.all([
+      this.numberFromJid(senderJid, senderPreferredPn),
+      this.numberFromJid(receiverJid, receiverPreferredPn),
     ]);
+    const senderProfilePicUrl = this.cachedProfilePicUrlFromJid(senderJid);
+    const receiverProfilePicUrl = this.cachedProfilePicUrlFromJid(receiverJid);
 
     return {
       id: key.id || '',
