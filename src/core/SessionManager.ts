@@ -49,8 +49,8 @@ export class SessionManager extends EventEmitter {
         reconnect: info.reconnect,
       });
     });
-    client.on('message', (msg) => this.emit('message:received', { sessionId: id, message: msg }));
-    client.on('message_sent', (msg) => this.emit('message:sent', { sessionId: id, message: msg }));
+    client.on('message', (msg, rawData) => this.emit('message:received', { sessionId: id, message: msg, rawData }));
+    client.on('message_sent', (msg, rawData) => this.emit('message:sent', { sessionId: id, message: msg, rawData }));
     client.on('message_ack', (data) => this.emit('message:ack', { sessionId: id, ...data }));
   }
 

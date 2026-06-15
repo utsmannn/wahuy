@@ -354,7 +354,7 @@ curl -X POST http://localhost:7834/api/sessions/main/read \
 
 ### Download received media in Internal mode
 
-Incoming media events/history include metadata under `media`. Fetch the base64 payload on demand:
+Incoming media events/history include metadata under `media`. Fetch the base64 payload on demand. This endpoint requires the raw Baileys media message saved in history; it works for media messages stored after Wahuy's raw-data persistence fix. Older rows that only contain normalized metadata (`media.mimetype`, `media.caption`, etc.) cannot be downloaded because they lack Baileys `imageMessage`/`videoMessage`/`documentMessage` media keys/direct paths.
 
 ```bash
 curl http://localhost:7834/api/sessions/main/messages/BAE5.../media \

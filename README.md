@@ -205,7 +205,7 @@ You do **not** need to use webhooks to receive events. WebSocket and REST cover 
 
 - Typing indicator: `POST /api/sessions/:id/typing` with `{ "to": "6281234567890", "duration": 3000 }`.
 - Read indicator: `POST /api/sessions/:id/read` with at least `{ "messageId": "..." }`. Wahuy uses the stored Baileys message key when available; callers can also pass `chatId`/`remoteJid` and `participant` explicitly.
-- Internal received media: incoming events/history include media metadata when present. Download the base64 payload with `GET /api/sessions/:id/messages/:messageId/media`.
+- Internal received media: incoming events/history include media metadata when present. Download the base64 payload with `GET /api/sessions/:id/messages/:messageId/media`. Media download needs the raw Baileys media message saved at receive/send time, so it works for media messages stored after this raw-data persistence fix; older rows that only contain normalized metadata cannot be backfilled.
 - Official received media: use the existing Cloud API-compatible `GET /v1/media/:mediaId` endpoint.
 - Contact profile photos: Internal-mode message contacts include `contacts.*.profilePicUrl` when Wahuy already has a cached Baileys profile-photo URL for that participant/contact. Missing values are `null`; Wahuy fetches photos in the background so incoming message delivery is not delayed.
 

@@ -303,9 +303,9 @@ export class WhatsAppClient extends EventEmitter {
         this.lastActivity = new Date();
 
         if (type === 'notify') {
-          this.emit('message', formatted);
+          this.emit('message', formatted, msg);
         } else if (msg.key.fromMe) {
-          this.emit('message_sent', formatted);
+          this.emit('message_sent', formatted, msg);
         }
       }
     });

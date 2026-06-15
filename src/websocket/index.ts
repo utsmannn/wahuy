@@ -225,7 +225,7 @@ function wireSessionEvents(): void {
       contacts: data.message.contacts,
       media: data.message.media,
     };
-    messageStorage.saveMessage(storedMessage, data.message);
+    messageStorage.saveMessage(storedMessage, data.rawData ?? data.message);
 
     io?.to(`session:${data.sessionId}`).emit('message:received', {
       sessionId: data.sessionId,
@@ -256,7 +256,7 @@ function wireSessionEvents(): void {
       contacts: data.message.contacts,
       media: data.message.media,
     };
-    messageStorage.saveMessage(storedMessage, data.message);
+    messageStorage.saveMessage(storedMessage, data.rawData ?? data.message);
 
     io?.to(`session:${data.sessionId}`).emit('message:sent', {
       sessionId: data.sessionId,
