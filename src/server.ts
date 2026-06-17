@@ -21,7 +21,8 @@ const __dirname = dirname(__filename);
 export async function createServer(): Promise<FastifyInstance> {
   const server = Fastify({
     logger: false, // We use our own logger
-    trustProxy: true
+    trustProxy: true,
+    maxParamLength: 2048
   });
 
   // Security middleware

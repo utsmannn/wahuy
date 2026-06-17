@@ -6,6 +6,8 @@ import { FastifyInstance } from 'fastify';
 import QRCode from 'qrcode';
 import { nanoid } from 'nanoid';
 import { sessionManager } from '../../core/SessionManager.js';
+import { logger } from '../../utils/logger.js';
+import { createCatalogImageProxyPath, downloadAndCacheCatalogImage } from '../utils/catalogImageProxy.js';
 
 export async function sessionRoutes(server: FastifyInstance): Promise<void> {
   // List all sessions
@@ -376,11 +378,36 @@ export async function sessionRoutes(server: FastifyInstance): Promise<void> {
       };
     }
 
+    const query = request.query as { limit?: string; cursor?: string; refresh?: string };
+    const parsedLimit = query.limit ? Number.parseInt(query.limit, 10) : 10;
+    const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(parsedLimit, 1), 100) : 10;
+    const cursor = query.cursor || undefined;
+    const refresh = query.refresh === 'true';
+
     try {
-      const catalog = await client.getBusinessCatalog();
+      const catalog = await client.getBusinessCatalog({ limit, cursor, refresh });
+
+      // Trigger background download/cache of all product images
+      for (const product of catalog.products) {
+        for (const imageUrl of product.images) {
+          downloadAndCacheCatalogImage(sessionId, imageUrl).catch(err => {
+            // Log it but don't fail the API response
+            logger.warn({ imageUrl, err: err.message }, 'Failed to pre-cache catalog image');
+          });
+        }
+      }
+
       return {
         success: true,
-        data: catalog
+        data: {
+          ...catalog,
+          products: catalog.products.map(product => ({
+            ...product,
+            imageProxyUrls: product.images
+              .map(imageUrl => createCatalogImageProxyPath(sessionId, imageUrl))
+              .filter((imageUrl): imageUrl is string => !!imageUrl)
+          }))
+        }
       };
     } catch (error) {
       const err = error as Error;

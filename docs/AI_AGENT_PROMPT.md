@@ -48,7 +48,7 @@ Wahuy needs a persistent `data/` volume because WhatsApp sessions and message hi
 ```bash
 docker run -d \
   --name wahuy \
-  -p 7834:7834 \
+  -p 7836:7834 \
   -e NODE_ENV=production \
   -e PORT=7834 \
   -e API_KEY=your-secure-api-key-change-me \
@@ -56,17 +56,17 @@ docker run -d \
   -v wahuy_data:/app/data \
   ghcr.io/utsmannn/wahuy:latest
 
-curl http://localhost:7834/api/health
+curl http://localhost:7836/api/health
 ```
 
 If using the repository's compose file:
 
 ```bash
 API_KEY=your-secure-api-key-change-me docker compose up -d
-curl http://localhost:7835/api/health
+curl http://localhost:7836/api/health
 ```
 
-The included `docker-compose.yml` maps host `7835` to container `7834`.
+The included `docker-compose.yml` maps host `${WAHUY_PUBLIC_PORT:-7836}` to container `7834`.
 
 ### Option B: Local development (no Chromium needed)
 
@@ -82,7 +82,7 @@ npm start
 npm run dev
 ```
 
-Dashboard: `http://localhost:7834` when `PORT=7834` and `DASHBOARD_ENABLED=true`.
+Dashboard: `http://localhost:7836` when `PORT=7834` and `DASHBOARD_ENABLED=true`.
 
 ---
 
@@ -93,7 +93,7 @@ Dashboard: `http://localhost:7834` when `PORT=7834` and `DASHBOARD_ENABLED=true`
 | Variable | Purpose |
 |----------|---------|
 | `API_KEY` | Primary key for `X-API-Key` auth. Change in production. |
-| `PORT` | HTTP port. Use `7834` for default deployment examples. |
+| `PORT` | Container HTTP port. Docker examples publish it on host port `7836`. |
 | `STORAGE_PATH` | Directory for sessions, SQLite DBs, and runtime data. |
 | `PROVIDER` | `internal` or `official`. Defaults to `internal`. |
 
@@ -146,9 +146,9 @@ Exception: `/webhooks/whatsapp` is not protected by `X-API-Key` because Meta cal
 ### Base URLs
 
 ```text
-Internal API: http://<host>:7834/api
-Official API: http://<host>:7834/v1
-Meta webhook: http://<host>:7834/webhooks/whatsapp
+Internal API: http://<host>:7836/api
+Official API: http://<host>:7836/v1
+Meta webhook: http://<host>:7836/webhooks/whatsapp
 ```
 
 ### Key endpoints
@@ -208,7 +208,7 @@ Use this when the user wants WhatsApp WebSocket QR login, multi-session automati
 ### Step 1: Create a session
 
 ```bash
-curl -X POST http://localhost:7834/api/sessions \
+curl -X POST http://localhost:7836/api/sessions \
   -H "X-API-Key: <key>" \
   -H "Content-Type: application/json" \
   -d '{"id":"main","name":"Main WhatsApp"}'
@@ -217,14 +217,14 @@ curl -X POST http://localhost:7834/api/sessions \
 ### Step 2: Start the session
 
 ```bash
-curl -X POST http://localhost:7834/api/sessions/main/start \
+curl -X POST http://localhost:7836/api/sessions/main/start \
   -H "X-API-Key: <key>"
 ```
 
 `POST /api/sessions/{id}/start` returns the full session info object, including `lastError` and `reconnect` when available. If an Internal session is stuck in `failed` because its saved Baileys auth state is invalid, request a fresh QR login by clearing that session auth before starting:
 
 ```bash
-curl -X POST http://localhost:7834/api/sessions/main/start \
+curl -X POST http://localhost:7836/api/sessions/main/start \
   -H "X-API-Key: <key>" \
   -H "Content-Type: application/json" \
   -d '{"resetAuth":true}'
@@ -236,7 +236,7 @@ Use `resetAuth` only when the caller intentionally wants to delete the saved aut
 
 ```bash
 # JSON data URL (base64 PNG)
-curl http://localhost:7834/api/sessions/main/qr \
+curl http://localhost:7836/api/sessions/main/qr \
   -H "X-API-Key: <key>"
 
 # Or watch it via WebSocket in realtime
@@ -286,7 +286,7 @@ This is an additive contract: existing consumers can keep reading only `sessionI
 ### Step 4: Poll until ready
 
 ```bash
-curl http://localhost:7834/api/sessions/main/status \
+curl http://localhost:7836/api/sessions/main/status \
   -H "X-API-Key: <key>"
 ```
 
@@ -306,7 +306,7 @@ Ready status:
 ### Step 5: Send a text message
 
 ```bash
-curl -X POST http://localhost:7834/api/sessions/main/messages/send \
+curl -X POST http://localhost:7836/api/sessions/main/messages/send \
   -H "X-API-Key: <key>" \
   -H "Content-Type: application/json" \
   -d '{"to":"6281234567890","text":"Hello from Wahuy"}'
@@ -325,7 +325,7 @@ Do not infer phone numbers from inbound identifiers. Incoming IDs such as `@lid`
 ### Send typing indicator
 
 ```bash
-curl -X POST http://localhost:7834/api/sessions/main/typing \
+curl -X POST http://localhost:7836/api/sessions/main/typing \
   -H "X-API-Key: <key>" \
   -H "Content-Type: application/json" \
   -d '{"to":"6281234567890","duration":3000}'
@@ -336,7 +336,7 @@ curl -X POST http://localhost:7834/api/sessions/main/typing \
 Use the message ID from `message.received`, WebSocket events, or REST history. Wahuy stores the original Baileys message key and uses that key for the read receipt.
 
 ```bash
-curl -X POST http://localhost:7834/api/sessions/main/read \
+curl -X POST http://localhost:7836/api/sessions/main/read \
   -H "X-API-Key: <key>" \
   -H "Content-Type: application/json" \
   -d '{"messageId":"BAE5..."}'
@@ -345,7 +345,7 @@ curl -X POST http://localhost:7834/api/sessions/main/read \
 If the message is not in history, pass the chat identity explicitly:
 
 ```bash
-curl -X POST http://localhost:7834/api/sessions/main/read \
+curl -X POST http://localhost:7836/api/sessions/main/read \
   -H "X-API-Key: <key>" \
   -H "Content-Type: application/json" \
   -d '{"chatId":"12345@lid","messageId":"BAE5...","participant":"67890@lid"}'
@@ -358,7 +358,7 @@ curl -X POST http://localhost:7834/api/sessions/main/read \
 Incoming media events/history include metadata under `media`. Fetch the base64 payload on demand. This endpoint requires the raw Baileys media message saved in history; it works for media messages stored after Wahuy's raw-data persistence fix. Older rows that only contain normalized metadata (`media.mimetype`, `media.caption`, etc.) cannot be downloaded because they lack Baileys `imageMessage`/`videoMessage`/`documentMessage` media keys/direct paths.
 
 ```bash
-curl http://localhost:7834/api/sessions/main/messages/BAE5.../media \
+curl http://localhost:7836/api/sessions/main/messages/BAE5.../media \
   -H "X-API-Key: <key>"
 ```
 
@@ -385,7 +385,7 @@ Response shape:
 For a ready Internal session, fetch the connected account's WhatsApp Business catalog read-only:
 
 ```bash
-curl http://localhost:7834/api/sessions/main/business/catalog \
+curl "http://localhost:7836/api/sessions/main/business/catalog?limit=10" \
   -H "X-API-Key: <key>"
 ```
 
@@ -400,9 +400,13 @@ Response shape:
         "id": "product-id",
         "name": "Product name",
         "description": "Description",
+        "retailerId": "SKU-001",
         "currency": "IDR",
         "price": 100000,
+        "salePrice": 80000,
+        "discountPrice": 80000,
         "images": ["https://..."],
+        "imageProxyUrls": ["/api/sessions/main/business/catalog/images/<signed-token>"],
         "url": "https://...",
         "isHidden": false,
         "availability": "in stock"
@@ -414,7 +418,7 @@ Response shape:
 }
 ```
 
-A session with no catalog or a non-business catalog state returns `200` with `data.products: []` and `count: 0`. Missing sessions return `404 SESSION_NOT_FOUND`; sessions that are not ready return `400 SESSION_NOT_READY`; catalog feature failures that cannot be treated as empty return a readable `422 BUSINESS_CATALOG_UNAVAILABLE` or `500 BUSINESS_CATALOG_FETCH_FAILED` error.
+A session with no catalog or a non-business catalog state returns `200` with `data.products: []` and `count: 0`. The endpoint defaults to `limit=10` because some WhatsApp Web catalog queries with `limit=100` can be slow or return an empty page; callers may pass `limit`, `cursor`, and `refresh=true`. `images` contains raw WhatsApp CDN URLs; `imageProxyUrls` contains short-lived signed Wahuy URLs that stream images inline and avoid CDN `file.enc` attachment/download headers. Missing sessions return `404 SESSION_NOT_FOUND`; sessions that are not ready return `400 SESSION_NOT_READY`; catalog feature failures that cannot be treated as empty return a readable `422 BUSINESS_CATALOG_UNAVAILABLE` or `500 BUSINESS_CATALOG_FETCH_FAILED` error.
 
 ---
 
@@ -435,13 +439,13 @@ OFFICIAL_WEBHOOK_VERIFY_TOKEN=...
 Restart Wahuy and verify:
 
 ```bash
-curl http://localhost:7834/api/provider -H "X-API-Key: <key>"
+curl http://localhost:7836/api/provider -H "X-API-Key: <key>"
 ```
 
 ### Option B: Switch at runtime
 
 ```bash
-curl -X POST http://localhost:7834/api/provider/switch \
+curl -X POST http://localhost:7836/api/provider/switch \
   -H "X-API-Key: <key>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -459,7 +463,7 @@ curl -X POST http://localhost:7834/api/provider/switch \
 ### Send a Cloud API-compatible text message
 
 ```bash
-curl -X POST http://localhost:7834/v1/messages \
+curl -X POST http://localhost:7836/v1/messages \
   -H "X-API-Key: <key>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -473,7 +477,7 @@ curl -X POST http://localhost:7834/v1/messages \
 ### Send a template message
 
 ```bash
-curl -X POST http://localhost:7834/v1/messages \
+curl -X POST http://localhost:7836/v1/messages \
   -H "X-API-Key: <key>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -507,7 +511,7 @@ There are two webhook concepts:
 ### Register outbound webhook (all sessions)
 
 ```bash
-curl -X POST http://localhost:7834/api/webhooks \
+curl -X POST http://localhost:7836/api/webhooks \
   -H "X-API-Key: <key>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -521,7 +525,7 @@ curl -X POST http://localhost:7834/api/webhooks \
 ### Register for specific sessions only
 
 ```bash
-curl -X POST http://localhost:7834/api/webhooks \
+curl -X POST http://localhost:7836/api/webhooks \
   -H "X-API-Key: <key>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -599,7 +603,7 @@ Use Socket.IO for QR/status/message updates. **This is the recommended way to re
 ```js
 import { io } from 'socket.io-client';
 
-const socket = io('http://localhost:7834', {
+const socket = io('http://localhost:7836', {
   auth: { apiKey: '<key>' }
 });
 
@@ -639,7 +643,7 @@ Wahuy stores message history in SQLite under `STORAGE_PATH`.
 ### Query global history
 
 ```bash
-curl "http://localhost:7834/api/sessions/messages/history?sessionId=main&limit=50" \
+curl "http://localhost:7836/api/sessions/messages/history?sessionId=main&limit=50" \
   -H "X-API-Key: <key>"
 ```
 
@@ -660,7 +664,7 @@ Supported filters:
 ### Query a conversation
 
 ```bash
-curl "http://localhost:7834/api/sessions/main/conversations/6281234567890?limit=100&offset=0" \
+curl "http://localhost:7836/api/sessions/main/conversations/6281234567890?limit=100&offset=0" \
   -H "X-API-Key: <key>"
 ```
 

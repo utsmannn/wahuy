@@ -66,23 +66,23 @@ flowchart LR
 ```bash
 docker run -d \
   --name wahuy \
-  -p 7834:7834 \
+  -p 7836:7834 \
   -e API_KEY=your-secure-api-key \
   -e DASHBOARD_ENABLED=true \
   -v wahuy_data:/app/data \
   ghcr.io/utsmannn/wahuy:latest
 
-curl http://localhost:7834/api/health
+curl http://localhost:7836/api/health
 ```
 
 Or use the included compose file:
 
 ```bash
 API_KEY=your-secure-api-key docker compose up -d
-curl http://localhost:7835/api/health
+curl http://localhost:7836/api/health
 ```
 
-> The included `docker-compose.yml` maps host `7835` → container `7834`. Docker image is ~350MB.
+> The included `docker-compose.yml` maps host `${WAHUY_PUBLIC_PORT:-7836}` → container `7834`. Docker image is ~350MB.
 
 ### Option 2: Local Development
 
@@ -96,14 +96,14 @@ npm start
 npm run dev
 ```
 
-Open **http://localhost:7834** for the dashboard when `DASHBOARD_ENABLED=true`.
+Open **http://localhost:7836** for the dashboard when `DASHBOARD_ENABLED=true`.
 
 ---
 
 ## API at a Glance
 
-**Internal API base:** `http://<host>:7834/api`
-**Official API base:** `http://<host>:7834/v1`
+**Internal API base:** `http://<host>:7836/api`
+**Official API base:** `http://<host>:7836/v1`
 **Auth:** `X-API-Key: <API_KEY>` except Meta webhook verification at `/webhooks/whatsapp`.
 
 | Group | Key endpoints |
@@ -128,28 +128,28 @@ Open **http://localhost:7834** for the dashboard when `DASHBOARD_ENABLED=true`.
 
 ```bash
 # Create a session
-curl -X POST http://localhost:7834/api/sessions \
+curl -X POST http://localhost:7836/api/sessions \
   -H "X-API-Key: <key>" \
   -H "Content-Type: application/json" \
   -d '{"id":"main","name":"Main WhatsApp"}'
 
 # Start the session and get QR
-curl -X POST http://localhost:7834/api/sessions/main/start -H "X-API-Key: <key>"
-curl http://localhost:7834/api/sessions/main/qr -H "X-API-Key: <key>"
+curl -X POST http://localhost:7836/api/sessions/main/start -H "X-API-Key: <key>"
+curl http://localhost:7836/api/sessions/main/qr -H "X-API-Key: <key>"
 # → returns { "success": true, "data": { "qr": "data:image/png;base64,..." } }
 
 # If an Internal session is stuck in failed because its saved Baileys auth state is invalid,
 # force a fresh QR login by clearing that session auth before starting:
-curl -X POST http://localhost:7834/api/sessions/main/start \
+curl -X POST http://localhost:7836/api/sessions/main/start \
   -H "X-API-Key: <key>" \
   -H "Content-Type: application/json" \
   -d '{"resetAuth":true}'
 
 # Poll until ready
-curl http://localhost:7834/api/sessions/main/status -H "X-API-Key: <key>"
+curl http://localhost:7836/api/sessions/main/status -H "X-API-Key: <key>"
 
 # Send text
-curl -X POST http://localhost:7834/api/sessions/main/messages/send \
+curl -X POST http://localhost:7836/api/sessions/main/messages/send \
   -H "X-API-Key: <key>" \
   -H "Content-Type: application/json" \
   -d '{"to":"6281234567890","text":"Hello from Wahuy"}'
@@ -158,7 +158,7 @@ curl -X POST http://localhost:7834/api/sessions/main/messages/send \
 ### Official mode — send Cloud API-compatible message
 
 ```bash
-curl -X POST http://localhost:7834/v1/messages \
+curl -X POST http://localhost:7836/v1/messages \
   -H "X-API-Key: <key>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -174,7 +174,7 @@ curl -X POST http://localhost:7834/v1/messages \
 For a ready Internal session, fetch the connected account's WhatsApp Business catalog read-only:
 
 ```bash
-curl http://localhost:7834/api/sessions/main/business/catalog \
+curl "http://localhost:7836/api/sessions/main/business/catalog?limit=10" \
   -H "X-API-Key: <key>"
 ```
 
@@ -189,9 +189,13 @@ Response shape:
         "id": "product-id",
         "name": "Product name",
         "description": "Description",
+        "retailerId": "SKU-001",
         "currency": "IDR",
         "price": 100000,
+        "salePrice": 80000,
+        "discountPrice": 80000,
         "images": ["https://..."],
+        "imageProxyUrls": ["/api/sessions/main/business/catalog/images/<signed-token>"],
         "url": "https://...",
         "isHidden": false,
         "availability": "in stock"
@@ -203,14 +207,14 @@ Response shape:
 }
 ```
 
-No catalog/non-business catalog state returns `200` with `data.products: []` and `count: 0`. Missing sessions return `404 SESSION_NOT_FOUND`; sessions that are not ready return `400 SESSION_NOT_READY`.
+No catalog/non-business catalog state returns `200` with `data.products: []` and `count: 0`. The endpoint defaults to `limit=10` because some WhatsApp Web catalog queries with `limit=100` can be slow or return an empty page; pass `limit`, `cursor`, and `refresh=true` as needed. `images` contains the raw WhatsApp CDN URLs, while `imageProxyUrls` contains signed Wahuy URLs that download the images using browser-like headers, cache them locally on disk in `/app/data/media/catalog/:sessionId/`, and stream them inline. This avoids CDN signature/IP-binding mismatch issues and `file.enc` download headers. Missing sessions return `404 SESSION_NOT_FOUND`; sessions that are not ready return `400 SESSION_NOT_READY`.
 
 ### Register an outbound webhook
 
 **Important:** The `sessions` field is **required** — use `["*"]` for all sessions or specify session IDs. Empty sessions are rejected.
 
 ```bash
-curl -X POST http://localhost:7834/api/webhooks \
+curl -X POST http://localhost:7836/api/webhooks \
   -H "X-API-Key: <key>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -251,7 +255,7 @@ You do **not** need to use webhooks to receive events. WebSocket and REST cover 
 ```js
 import { io } from 'socket.io-client';
 
-const socket = io('http://localhost:7834', {
+const socket = io('http://localhost:7836', {
   auth: { apiKey: '<key>' }
 });
 
@@ -340,7 +344,7 @@ All env vars with defaults are in [`.env.example`](.env.example) and [`src/confi
 
 | Variable | Default | Notes |
 |----------|---------|-------|
-| `PORT` | `3000` | Docker commonly uses `7834`; set explicitly. |
+| `PORT` | `3000` | Container HTTP port; Docker examples publish it on host port `7836`. |
 | `API_KEY` | `development-api-key` | **Change in production.** |
 | `API_KEYS` | — | Optional comma-separated extra API keys. |
 | `PROVIDER` | `internal` | `internal` or `official`. |

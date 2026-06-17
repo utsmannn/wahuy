@@ -9,6 +9,30 @@ export interface Session {
   lastActivity?: string;
 }
 
+export interface BusinessCatalogProduct {
+  id: string;
+  name: string;
+  description?: string;
+  retailerId?: string;
+  currency?: string;
+  price?: number;
+  salePrice?: number;
+  discountPrice?: number;
+  images: string[];
+  imageProxyUrls?: string[];
+  url?: string;
+  isHidden: boolean;
+  availability?: string;
+  reviewStatus?: Record<string, string>;
+  raw?: Record<string, unknown>;
+}
+
+export interface BusinessCatalog {
+  products: BusinessCatalogProduct[];
+  count: number;
+  nextPageCursor?: string;
+}
+
 export interface Webhook {
   id: string;
   url: string;

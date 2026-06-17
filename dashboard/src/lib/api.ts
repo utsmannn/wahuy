@@ -49,6 +49,14 @@ export const api = {
   stopSession: (id: string) => request<{ success: boolean }>(`/sessions/${id}/stop`, { method: 'POST' }),
   logoutSession: (id: string) => request<{ success: boolean }>(`/sessions/${id}/logout`, { method: 'POST' }),
   getQR: (id: string) => request<{ success: boolean; data: { qr: string } }>(`/sessions/${id}/qr`),
+  getBusinessCatalog: (id: string, options?: { limit?: number; cursor?: string; refresh?: boolean }) => {
+    const params = new URLSearchParams();
+    if (options?.limit) params.set('limit', String(options.limit));
+    if (options?.cursor) params.set('cursor', options.cursor);
+    if (options?.refresh) params.set('refresh', 'true');
+    const query = params.toString();
+    return request<{ success: boolean; data: import('../types').BusinessCatalog }>(`/sessions/${id}/business/catalog${query ? `?${query}` : ''}`);
+  },
 
   // Webhooks
   getWebhooks: () => request<{ success: boolean; data: import('../types').Webhook[] }>('/webhooks'),

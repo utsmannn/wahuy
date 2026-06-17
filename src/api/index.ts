@@ -4,6 +4,7 @@
 
 import { FastifyInstance } from 'fastify';
 import { healthRoutes } from './routes/health.js';
+import { catalogImageRoutes } from './routes/catalog-images.js';
 import { sessionRoutes } from './routes/sessions.js';
 import { messageRoutes } from './routes/messages.js';
 import { webhookRoutes } from './routes/webhooks.js';
@@ -16,6 +17,9 @@ import { logger } from '../utils/logger.js';
 export async function registerRoutes(server: FastifyInstance): Promise<void> {
   // Health check (no auth required)
   await server.register(healthRoutes, { prefix: '/api' });
+
+  // Signed catalog image proxy (no API key header required for <img src>)
+  await server.register(catalogImageRoutes, { prefix: '/api' });
 
   // Protected routes
   await server.register(async (protectedServer) => {

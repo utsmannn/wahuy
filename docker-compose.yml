@@ -7,7 +7,7 @@ services:
     container_name: wahuy
     restart: unless-stopped
     ports:
-      - "7835:7834"
+      - "${WAHUY_PUBLIC_PORT:-7836}:7834"
     environment:
       # Mode: 'internal' (Web.js) atau 'official' (Meta API)
       - PROVIDER=${PROVIDER:-internal}

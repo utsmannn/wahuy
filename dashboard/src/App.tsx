@@ -8,6 +8,7 @@ import { WebhookForm } from './components/WebhookForm';
 import { WebhookMonitor } from './components/WebhookMonitor';
 import { MessageViewer } from './components/MessageViewer';
 import { SendMessageModal } from './components/SendMessageModal';
+import { BusinessCatalogModal } from './components/BusinessCatalogModal';
 import { ProviderSetup } from './components/ProviderSetup';
 import { useWebSocket } from './hooks/useWebSocket';
 import { api } from './lib/api';
@@ -29,6 +30,7 @@ function App() {
   const [showCreateSession, setShowCreateSession] = useState(false);
   const [showWebhookForm, setShowWebhookForm] = useState(false);
   const [showSendMessage, setShowSendMessage] = useState(false);
+  const [showBusinessCatalog, setShowBusinessCatalog] = useState(false);
   const [showWebhookMonitor, setShowWebhookMonitor] = useState(false);
   const [qrModal, setQrModal] = useState<{ sessionId: string; qr: string } | null>(null);
   const [selectedSession, setSelectedSession] = useState('');
@@ -251,6 +253,7 @@ function App() {
                     onStart={() => handleStartSession(session.id)} onStop={() => handleStopSession(session.id)}
                     onDelete={() => handleDeleteSession(session.id)} onLogout={() => handleLogoutSession(session.id)}
                     onSendMessage={() => { setSelectedSession(session.id); setShowSendMessage(true); }}
+                    onTestBusinessCatalog={() => { setSelectedSession(session.id); setShowBusinessCatalog(true); }}
                     onShowQr={(qr) => setQrModal({ sessionId: session.id, qr })} />
                 ))}
               </div>
@@ -341,6 +344,8 @@ function App() {
       <WebhookMonitor isOpen={showWebhookMonitor} onClose={() => setShowWebhookMonitor(false)} />
       <SendMessageModal isOpen={showSendMessage} onClose={() => setShowSendMessage(false)}
         sessionId={selectedSession} sessions={sessions} providerInfo={providerInfo} />
+      <BusinessCatalogModal isOpen={showBusinessCatalog} onClose={() => setShowBusinessCatalog(false)}
+        sessionId={selectedSession} />
 
       {/* QR Modal */}
       {qrModal && (

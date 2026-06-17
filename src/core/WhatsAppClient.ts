@@ -19,6 +19,11 @@ import {
   isPnUser,
   jidDecode,
   downloadContentFromMessage,
+  S_WHATSAPP_NET,
+  getBinaryNodeChild,
+  getBinaryNodeChildren,
+  getBinaryNodeChildString,
+  type BinaryNode,
   type WASocket,
   type WAMessage,
   type WAMessageKey,
@@ -67,12 +72,17 @@ type BusinessCatalogProduct = {
   id: string;
   name: string;
   description?: string;
+  retailerId?: string;
   currency?: string;
   price?: number;
+  salePrice?: number;
+  discountPrice?: number;
   images: string[];
   url?: string;
   isHidden: boolean;
   availability?: string;
+  reviewStatus?: Record<string, string>;
+  raw?: Record<string, unknown>;
 };
 
 type BusinessCatalog = {
@@ -80,6 +90,20 @@ type BusinessCatalog = {
   count: number;
   nextPageCursor?: string;
 };
+
+type BusinessCatalogOptions = {
+  limit?: number;
+  cursor?: string;
+  refresh?: boolean;
+};
+
+type BusinessCatalogCacheEntry = {
+  key: string;
+  expiresAt: number;
+  value: BusinessCatalog;
+};
+
+const BUSINESS_CATALOG_CACHE_TTL_MS = 60000;
 
 export class WhatsAppClient extends EventEmitter {
   private sock: WASocket | null = null;
@@ -105,6 +129,8 @@ export class WhatsAppClient extends EventEmitter {
   private lidToPn = new Map<string, string>();
   private profilePicUrls = new Map<string, string | null>();
   private profilePicFetches = new Set<string>();
+  private ownJid: string | null = null;
+  private businessCatalogCache: BusinessCatalogCacheEntry | null = null;
 
   constructor(id: string, name?: string) {
     super();
@@ -237,12 +263,11 @@ export class WhatsAppClient extends EventEmitter {
         this.lastError = null;
 
         const raw = this.sock?.user as { id?: string; name?: string } | undefined;
-        if (raw) {
-          this.phone = raw.id?.split(':')[0]?.split('@')[0] || null;
-          this.pushName = raw.name || null;
-        }
+        this.ownJid = this.getOwnJid();
+        this.phone = this.ownJid && isPnUser(this.ownJid) ? jidDecode(this.ownJid)?.user ?? null : null;
+        this.pushName = raw?.name || null;
 
-        logger.info({ sessionId: this.id, phone: this.phone }, 'Baileys: connected');
+        logger.info({ sessionId: this.id, jid: this.ownJid, phone: this.phone }, 'Baileys: connected');
         this.emit('ready');
       }
 
@@ -358,6 +383,21 @@ export class WhatsAppClient extends EventEmitter {
     if (isLidUser(normalizedLid) && isPnUser(normalizedPn)) {
       this.lidToPn.set(normalizedLid, normalizedPn);
     }
+  }
+
+  private getOwnJid(): string | null {
+    const authMeId = this.sock?.authState?.creds?.me?.id;
+    const userId = (this.sock?.user as { id?: string } | undefined)?.id;
+    return this.normalizeJid(authMeId || userId || this.ownJid);
+  }
+
+  private jidType(jid?: string | null): 'lid' | 'pn' | 'group' | 'other' | 'none' {
+    const normalized = this.normalizeJid(jid);
+    if (!normalized) return 'none';
+    if (normalized.endsWith('@g.us')) return 'group';
+    if (isLidUser(normalized)) return 'lid';
+    if (isPnUser(normalized)) return 'pn';
+    return 'other';
   }
 
   private async resolvePhoneJid(jid?: string | null, preferredPn?: string | null): Promise<string | null> {
@@ -503,7 +543,7 @@ export class WhatsAppClient extends EventEmitter {
     }
 
     const senderJid = this.normalizeJid(key.participant || key.remoteJid);
-    const receiverJid = this.normalizeJid(isFromMe ? key.remoteJid : (this.phone ? `${this.phone}@s.whatsapp.net` : ''));
+    const receiverJid = this.normalizeJid(isFromMe ? key.remoteJid : this.getOwnJid());
     const keyWithAlt = key as typeof key & {
       remoteJidAlt?: string | null;
       participantAlt?: string | null;
@@ -688,18 +728,154 @@ export class WhatsAppClient extends EventEmitter {
 
   async getChats(): Promise<object[]> { return []; }
 
-  private normalizeCatalogProduct(product: Product): BusinessCatalogProduct {
+  private catalogNodeText(node: BinaryNode | undefined, tag: string): string | undefined {
+    const value = getBinaryNodeChildString(node, tag);
+    return value || undefined;
+  }
+
+  private catalogNodeNumber(node: BinaryNode | undefined, tag: string): number | undefined {
+    const value = this.catalogNodeText(node, tag);
+    if (!value) return undefined;
+
+    const number = Number(value);
+    return Number.isFinite(number) ? number : undefined;
+  }
+
+  private catalogProductRawFields(productNode: BinaryNode | undefined): Record<string, unknown> {
+    const raw: Record<string, unknown> = {};
+
+    if (!Array.isArray(productNode?.content)) return raw;
+
+    for (const child of productNode.content) {
+      if (typeof child.content === 'string') {
+        raw[child.tag] = child.content;
+      } else if (child.content instanceof Uint8Array || Buffer.isBuffer(child.content)) {
+        raw[child.tag] = Buffer.from(child.content).toString();
+      } else if (Array.isArray(child.content)) {
+        raw[child.tag] = child.content.map(grandchild => ({
+          tag: grandchild.tag,
+          attrs: grandchild.attrs,
+          children: Array.isArray(grandchild.content)
+            ? grandchild.content.map(item => ({
+              tag: item.tag,
+              attrs: item.attrs,
+              content: typeof item.content === 'string'
+                ? item.content
+                : item.content instanceof Uint8Array || Buffer.isBuffer(item.content)
+                  ? Buffer.from(item.content).toString()
+                  : undefined,
+            }))
+            : undefined,
+          content: typeof grandchild.content === 'string'
+            ? grandchild.content
+            : grandchild.content instanceof Uint8Array || Buffer.isBuffer(grandchild.content)
+              ? Buffer.from(grandchild.content).toString()
+              : undefined,
+        }));
+      }
+    }
+
+    return raw;
+  }
+
+  private normalizeCatalogProduct(product: Product, productNode?: BinaryNode): BusinessCatalogProduct {
+    const raw = productNode ? this.catalogProductRawFields(productNode) : undefined;
+    const salePrice = this.catalogNodeNumber(productNode, 'sale_price')
+      ?? this.catalogNodeNumber(productNode, 'sale_price_amount_1000')
+      ?? this.catalogNodeNumber(productNode, 'sale_price_amount1000')
+      ?? this.catalogNodeNumber(productNode, 'salePrice');
+
     return {
       id: product.id,
       name: product.name,
       description: product.description || undefined,
+      retailerId: product.retailerId || undefined,
       currency: product.currency || undefined,
       price: Number.isFinite(product.price) ? product.price : undefined,
+      salePrice,
+      discountPrice: salePrice,
       images: Object.values(product.imageUrls || {}).filter((url): url is string => !!url),
       url: product.url || undefined,
       isHidden: !!product.isHidden,
       availability: product.availability || undefined,
+      reviewStatus: product.reviewStatus,
+      raw,
     };
+  }
+
+  private parseCatalogResponse(node: BinaryNode): BusinessCatalog {
+    const catalogNode = getBinaryNodeChild(node, 'product_catalog');
+    const productNodes = getBinaryNodeChildren(catalogNode, 'product');
+    const products = productNodes.map(productNode => this.normalizeCatalogProduct({
+      id: this.catalogNodeText(productNode, 'id') || '',
+      imageUrls: this.parseCatalogImageUrls(getBinaryNodeChild(productNode, 'media')),
+      reviewStatus: { whatsapp: this.catalogNodeText(getBinaryNodeChild(productNode, 'status_info'), 'status') || '' },
+      availability: 'in stock',
+      name: this.catalogNodeText(productNode, 'name') || '',
+      retailerId: this.catalogNodeText(productNode, 'retailer_id'),
+      url: this.catalogNodeText(productNode, 'url'),
+      description: this.catalogNodeText(productNode, 'description') || '',
+      price: this.catalogNodeNumber(productNode, 'price') ?? Number.NaN,
+      currency: this.catalogNodeText(productNode, 'currency') || '',
+      isHidden: productNode.attrs.is_hidden === 'true',
+    }, productNode));
+    const paging = getBinaryNodeChild(catalogNode, 'paging');
+
+    return {
+      products,
+      count: products.length,
+      nextPageCursor: paging ? this.catalogNodeText(paging, 'after') : undefined,
+    };
+  }
+
+  private parseCatalogImageUrls(mediaNode: BinaryNode | undefined): Record<string, string> {
+    const images: Record<string, string> = {};
+    getBinaryNodeChildren(mediaNode, 'image').forEach((imageNode, index) => {
+      const requested = this.catalogNodeText(imageNode, 'request_image_url');
+      const original = this.catalogNodeText(imageNode, 'original_image_url');
+      const url = this.catalogNodeText(imageNode, 'url');
+
+      if (original) images[`${index}:original`] = original;
+      if (requested) images[`${index}:requested`] = requested;
+      if (url) images[`${index}:url`] = url;
+    });
+    return images;
+  }
+
+  private async fetchBusinessCatalog(jid: string | undefined, limit: number, cursor?: string): Promise<BusinessCatalog> {
+    if (!this.sock) throw new Error('Session is not connected');
+
+    const queryParamNodes: BinaryNode[] = [
+      { tag: 'limit', attrs: {}, content: Buffer.from(limit.toString()) },
+      { tag: 'width', attrs: {}, content: Buffer.from('100') },
+      { tag: 'height', attrs: {}, content: Buffer.from('100') },
+    ];
+
+    if (cursor) {
+      queryParamNodes.push({ tag: 'after', attrs: {}, content: cursor });
+    }
+
+    const normalizedJid = jidNormalizedUser(jid || this.sock.authState.creds.me?.id || '');
+    const node = await this.sock.query({
+      tag: 'iq',
+      attrs: {
+        to: S_WHATSAPP_NET,
+        type: 'get',
+        xmlns: 'w:biz:catalog',
+      },
+      content: [
+        {
+          tag: 'product_catalog',
+          attrs: {
+            jid: normalizedJid,
+            allow_shop_source: 'true',
+          },
+          content: queryParamNodes,
+        },
+      ],
+    });
+
+    return this.parseCatalogResponse(node);
   }
 
   private emptyBusinessCatalog(): BusinessCatalog {
@@ -715,21 +891,72 @@ export class WhatsAppClient extends EventEmitter {
     return /item-not-found|catalog_not_created|catalog not created/i.test(details);
   }
 
-  async getBusinessCatalog(limit = 100): Promise<BusinessCatalog> {
+  async getBusinessCatalog(options: BusinessCatalogOptions = {}): Promise<BusinessCatalog> {
     if (!this.sock) throw new Error('Session is not connected');
 
-    const jid = this.phone ? `${this.phone}@s.whatsapp.net` : undefined;
+    const limit = options.limit ?? 100;
+    const cursor = options.cursor;
+    const jid = this.getOwnJid() ?? undefined;
+    const cacheKey = `${jid || 'default'}:${limit}:${cursor || ''}`;
+    const now = Date.now();
+
+    if (!options.refresh && this.businessCatalogCache?.key === cacheKey && this.businessCatalogCache.expiresAt > now) {
+      logger.info({
+        sessionId: this.id,
+        jid,
+        jidType: this.jidType(jid),
+        limit,
+        hasCursor: !!cursor,
+        count: this.businessCatalogCache.value.count,
+      }, 'Returning cached WhatsApp Business catalog');
+      return this.businessCatalogCache.value;
+    }
+
+    const startedAt = Date.now();
+    logger.info({
+      sessionId: this.id,
+      jid,
+      jidType: this.jidType(jid),
+      limit,
+      hasCursor: !!cursor,
+      refresh: !!options.refresh,
+      authMeId: this.sock.authState?.creds?.me?.id,
+      sockUserId: (this.sock.user as { id?: string } | undefined)?.id,
+    }, 'Fetching WhatsApp Business catalog');
 
     try {
-      const catalog = await this.sock.getCatalog({ jid, limit });
-      const products = (catalog?.products || []).map(product => this.normalizeCatalogProduct(product));
+      const result = await this.fetchBusinessCatalog(jid, limit, cursor);
 
-      return {
-        products,
-        count: products.length,
-        nextPageCursor: catalog?.nextPageCursor,
+      this.businessCatalogCache = {
+        key: cacheKey,
+        expiresAt: Date.now() + BUSINESS_CATALOG_CACHE_TTL_MS,
+        value: result,
       };
+
+      logger.info({
+        sessionId: this.id,
+        jid,
+        jidType: this.jidType(jid),
+        count: result.count,
+        hasNextPageCursor: !!result.nextPageCursor,
+        durationMs: Date.now() - startedAt,
+      }, 'Fetched WhatsApp Business catalog');
+
+      return result;
     } catch (error) {
+      const err = error as { message?: string; data?: unknown; output?: { statusCode?: number } };
+      logger.warn({
+        sessionId: this.id,
+        jid,
+        jidType: this.jidType(jid),
+        limit,
+        hasCursor: !!cursor,
+        durationMs: Date.now() - startedAt,
+        error: err.message,
+        errorData: err.data,
+        statusCode: err.output?.statusCode,
+      }, 'Failed to fetch WhatsApp Business catalog');
+
       if (this.isEmptyBusinessCatalogError(error)) return this.emptyBusinessCatalog();
       throw error;
     }

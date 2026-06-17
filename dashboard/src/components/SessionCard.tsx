@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Power, PowerOff, Trash2, Send, LogOut, QrCode } from 'lucide-react';
+import { Power, PowerOff, Trash2, Send, LogOut, QrCode, PackageSearch } from 'lucide-react';
 import { api } from '../lib/api';
 import type { Session } from '../types';
 
@@ -12,6 +12,7 @@ interface SessionCardProps {
   onLogout: () => void;
   onSendMessage?: () => void;
   onShowQr?: (qr: string) => void;
+  onTestBusinessCatalog?: () => void;
 }
 
 const statusMeta: Record<string, string> = {
@@ -27,7 +28,7 @@ const statusMeta: Record<string, string> = {
   failed: 'bg-red-500',
 };
 
-export function SessionCard({ session, qrCode, onStart, onStop, onDelete, onLogout, onSendMessage, onShowQr }: SessionCardProps) {
+export function SessionCard({ session, qrCode, onStart, onStop, onDelete, onLogout, onSendMessage, onShowQr, onTestBusinessCatalog }: SessionCardProps) {
   const isActive = ['ready', 'connected', 'authenticated', 'connecting', 'scan_qr', 'starting'].includes(session.status);
   const dot = statusMeta[session.status] || 'bg-gray-300';
   const [localQr, setLocalQr] = useState<string | null>(qrCode || null);
@@ -120,6 +121,10 @@ export function SessionCard({ session, qrCode, onStart, onStop, onDelete, onLogo
               <button onClick={onSendMessage}
                 className="flex items-center gap-1 px-3 py-1.5 bg-gray-900 dark:bg-white text-white dark:text-gray-900 rounded-lg text-xs font-medium hover:bg-gray-800 dark:hover:bg-gray-100 transition-colors">
                 <Send size={13} /> Message
+              </button>
+              <button onClick={onTestBusinessCatalog}
+                className="flex items-center gap-1 px-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-medium text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                <PackageSearch size={13} /> Catalog
               </button>
               <button onClick={onLogout}
                 className="flex items-center gap-1 px-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-medium text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
