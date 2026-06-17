@@ -7,7 +7,7 @@ import QRCode from 'qrcode';
 import { nanoid } from 'nanoid';
 import { sessionManager } from '../../core/SessionManager.js';
 import { logger } from '../../utils/logger.js';
-import { createCatalogImageProxyPath, downloadAndCacheCatalogImage } from '../utils/catalogImageProxy.js';
+import { createCatalogImageProxyPath, downloadAndCacheCatalogImage, cleanupOrphanedCatalogImages } from '../utils/catalogImageProxy.js';
 
 export async function sessionRoutes(server: FastifyInstance): Promise<void> {
   // List all sessions
@@ -388,13 +388,22 @@ export async function sessionRoutes(server: FastifyInstance): Promise<void> {
       const catalog = await client.getBusinessCatalog({ limit, cursor, refresh });
 
       // Trigger background download/cache of all product images
+      const activeUrls: string[] = [];
       for (const product of catalog.products) {
         for (const imageUrl of product.images) {
+          activeUrls.push(imageUrl);
           downloadAndCacheCatalogImage(sessionId, imageUrl).catch(err => {
             // Log it but don't fail the API response
             logger.warn({ imageUrl, err: err.message }, 'Failed to pre-cache catalog image');
           });
         }
+      }
+
+      // Clean up orphaned cache files in background
+      if (activeUrls.length > 0) {
+        cleanupOrphanedCatalogImages(sessionId, activeUrls).catch(err => {
+          logger.warn({ err: err.message }, 'Failed to clean up orphaned catalog images');
+        });
       }
 
       return {

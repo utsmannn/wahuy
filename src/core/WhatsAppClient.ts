@@ -780,10 +780,22 @@ export class WhatsAppClient extends EventEmitter {
 
   private normalizeCatalogProduct(product: Product, productNode?: BinaryNode): BusinessCatalogProduct {
     const raw = productNode ? this.catalogProductRawFields(productNode) : undefined;
-    const salePrice = this.catalogNodeNumber(productNode, 'sale_price')
+    
+    const salePriceNode = getBinaryNodeChild(productNode, 'sale_price');
+    let salePrice = this.catalogNodeNumber(salePriceNode, 'price')
+      ?? this.catalogNodeNumber(productNode, 'sale_price')
       ?? this.catalogNodeNumber(productNode, 'sale_price_amount_1000')
       ?? this.catalogNodeNumber(productNode, 'sale_price_amount1000')
       ?? this.catalogNodeNumber(productNode, 'salePrice');
+
+    let price = Number.isFinite(product.price) ? product.price : undefined;
+
+    if (price !== undefined) {
+      price = price / 1000;
+    }
+    if (salePrice !== undefined) {
+      salePrice = salePrice / 1000;
+    }
 
     return {
       id: product.id,
@@ -791,7 +803,7 @@ export class WhatsAppClient extends EventEmitter {
       description: product.description || undefined,
       retailerId: product.retailerId || undefined,
       currency: product.currency || undefined,
-      price: Number.isFinite(product.price) ? product.price : undefined,
+      price,
       salePrice,
       discountPrice: salePrice,
       images: Object.values(product.imageUrls || {}).filter((url): url is string => !!url),
@@ -855,7 +867,14 @@ export class WhatsAppClient extends EventEmitter {
       queryParamNodes.push({ tag: 'after', attrs: {}, content: cursor });
     }
 
-    const normalizedJid = jidNormalizedUser(jid || this.sock.authState.creds.me?.id || '');
+    const meLid = this.sock.authState?.creds?.me?.lid;
+    const meId = this.sock.authState?.creds?.me?.id;
+    let targetJid = jid;
+    if (!targetJid || targetJid === jidNormalizedUser(meId || '') || targetJid === jidNormalizedUser(meLid || '')) {
+      targetJid = meLid || meId || targetJid;
+    }
+    const normalizedJid = jidNormalizedUser(targetJid || '');
+
     const node = await this.sock.query({
       tag: 'iq',
       attrs: {

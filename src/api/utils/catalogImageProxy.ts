@@ -4,8 +4,6 @@ import { join } from 'node:path';
 import { config } from '../../config.js';
 import { logger } from '../../utils/logger.js';
 
-const CATALOG_IMAGE_PROXY_TTL_MS = 15 * 60 * 1000;
-
 const ALLOWED_IMAGE_HOSTS = [
   'mmg.whatsapp.net',
   'cdn.whatsapp.net',
@@ -65,7 +63,7 @@ export function createCatalogImageProxyToken(sessionId: string, imageUrl: string
   const payload: CatalogImageTokenPayload = {
     sessionId,
     url: imageUrl,
-    exp: Date.now() + CATALOG_IMAGE_PROXY_TTL_MS,
+    exp: 4102444800000, // Fixed expiration in the year 2100 for deterministic tokens and browser cache optimization
   };
   const encodedPayload = base64UrlEncode(JSON.stringify(payload));
   const signature = signPayload(encodedPayload);
@@ -135,4 +133,20 @@ export async function downloadAndCacheCatalogImage(sessionId: string, imageUrl: 
   await fs.writeFile(localPath, buffer);
   logger.info({ sessionId, localPath }, 'Catalog image cached locally');
   return localPath;
+}
+
+export async function cleanupOrphanedCatalogImages(sessionId: string, activeUrls: string[]): Promise<void> {
+  const dir = join(config.storage.path, 'media', 'catalog', sessionId);
+  try {
+    const files = await fs.readdir(dir);
+    const activeHashes = new Set(activeUrls.map(url => `${createHash('md5').update(url).digest('hex')}.jpg`));
+    
+    for (const file of files) {
+      if (file.endsWith('.jpg') && !activeHashes.has(file)) {
+        await fs.unlink(join(dir, file)).catch(() => {});
+      }
+    }
+  } catch (error) {
+    // Directory may not exist yet, ignore
+  }
 }
