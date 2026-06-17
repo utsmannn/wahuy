@@ -166,6 +166,7 @@ Meta webhook: http://<host>:7834/webhooks/whatsapp
 | `GET` | `/api/sessions/{id}/status` | Session status, last error, reconnect state. |
 | `GET` | `/api/sessions/{id}/chats` | List all chats. Requires ready session. |
 | `GET` | `/api/sessions/{id}/groups` | List groups only. Requires ready session. |
+| `GET` | `/api/sessions/{id}/business/catalog` | Read WhatsApp Business catalog products for a ready session. Empty/non-business catalogs return `products: []`. |
 | `POST` | `/api/sessions/{id}/messages/send` | Send Internal text message. |
 | `POST` | `/api/sessions/{id}/messages/send-image` | Send base64 image. |
 | `POST` | `/api/sessions/{id}/messages/send-document` | Send base64 document. |
@@ -378,6 +379,42 @@ Response shape:
   }
 }
 ```
+
+### Read WhatsApp Business catalog
+
+For a ready Internal session, fetch the connected account's WhatsApp Business catalog read-only:
+
+```bash
+curl http://localhost:7834/api/sessions/main/business/catalog \
+  -H "X-API-Key: <key>"
+```
+
+Response shape:
+
+```json
+{
+  "success": true,
+  "data": {
+    "products": [
+      {
+        "id": "product-id",
+        "name": "Product name",
+        "description": "Description",
+        "currency": "IDR",
+        "price": 100000,
+        "images": ["https://..."],
+        "url": "https://...",
+        "isHidden": false,
+        "availability": "in stock"
+      }
+    ],
+    "count": 1,
+    "nextPageCursor": null
+  }
+}
+```
+
+A session with no catalog or a non-business catalog state returns `200` with `data.products: []` and `count: 0`. Missing sessions return `404 SESSION_NOT_FOUND`; sessions that are not ready return `400 SESSION_NOT_READY`; catalog feature failures that cannot be treated as empty return a readable `422 BUSINESS_CATALOG_UNAVAILABLE` or `500 BUSINESS_CATALOG_FETCH_FAILED` error.
 
 ---
 

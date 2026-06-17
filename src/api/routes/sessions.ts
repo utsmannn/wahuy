@@ -349,6 +349,54 @@ export async function sessionRoutes(server: FastifyInstance): Promise<void> {
     }
   });
 
+  // Get WhatsApp Business catalog
+  server.get('/:sessionId/business/catalog', async (request, reply) => {
+    const { sessionId } = request.params as { sessionId: string };
+    const client = sessionManager.getSession(sessionId);
+
+    if (!client) {
+      reply.status(404);
+      return {
+        success: false,
+        error: {
+          code: 'SESSION_NOT_FOUND',
+          message: `Session '${sessionId}' not found`
+        }
+      };
+    }
+
+    if (client.getStatus() !== 'ready') {
+      reply.status(400);
+      return {
+        success: false,
+        error: {
+          code: 'SESSION_NOT_READY',
+          message: 'Session is not ready'
+        }
+      };
+    }
+
+    try {
+      const catalog = await client.getBusinessCatalog();
+      return {
+        success: true,
+        data: catalog
+      };
+    } catch (error) {
+      const err = error as Error;
+      const message = err.message || 'Business catalog is unavailable for this session';
+      const unavailable = /business|catalog|not.*found|not.*available|forbidden|unsupported|item-not-found/i.test(message);
+      reply.status(unavailable ? 422 : 500);
+      return {
+        success: false,
+        error: {
+          code: unavailable ? 'BUSINESS_CATALOG_UNAVAILABLE' : 'BUSINESS_CATALOG_FETCH_FAILED',
+          message
+        }
+      };
+    }
+  });
+
   // Get groups only
   server.get('/:sessionId/groups', async (request, reply) => {
     const { sessionId } = request.params as { sessionId: string };

@@ -25,6 +25,7 @@ import {
   type ConnectionState,
   type Contact,
   type LIDMapping,
+  type Product,
 } from '@whiskeysockets/baileys';
 import { join } from 'path';
 import { logger } from '../utils/logger.js';
@@ -60,6 +61,24 @@ type DownloadedMedia = {
   mimeType: string;
   filename?: string;
   caption?: string;
+};
+
+type BusinessCatalogProduct = {
+  id: string;
+  name: string;
+  description?: string;
+  currency?: string;
+  price?: number;
+  images: string[];
+  url?: string;
+  isHidden: boolean;
+  availability?: string;
+};
+
+type BusinessCatalog = {
+  products: BusinessCatalogProduct[];
+  count: number;
+  nextPageCursor?: string;
 };
 
 export class WhatsAppClient extends EventEmitter {
@@ -668,6 +687,53 @@ export class WhatsAppClient extends EventEmitter {
   async getChatMessages(_phone: string, _limit = 50): Promise<object[]> { return []; }
 
   async getChats(): Promise<object[]> { return []; }
+
+  private normalizeCatalogProduct(product: Product): BusinessCatalogProduct {
+    return {
+      id: product.id,
+      name: product.name,
+      description: product.description || undefined,
+      currency: product.currency || undefined,
+      price: Number.isFinite(product.price) ? product.price : undefined,
+      images: Object.values(product.imageUrls || {}).filter((url): url is string => !!url),
+      url: product.url || undefined,
+      isHidden: !!product.isHidden,
+      availability: product.availability || undefined,
+    };
+  }
+
+  private emptyBusinessCatalog(): BusinessCatalog {
+    return {
+      products: [],
+      count: 0,
+    };
+  }
+
+  private isEmptyBusinessCatalogError(error: unknown): boolean {
+    const err = error as { message?: string; data?: unknown };
+    const details = `${err.message || ''} ${typeof err.data === 'string' ? err.data : JSON.stringify(err.data || '')}`;
+    return /item-not-found|catalog_not_created|catalog not created/i.test(details);
+  }
+
+  async getBusinessCatalog(limit = 100): Promise<BusinessCatalog> {
+    if (!this.sock) throw new Error('Session is not connected');
+
+    const jid = this.phone ? `${this.phone}@s.whatsapp.net` : undefined;
+
+    try {
+      const catalog = await this.sock.getCatalog({ jid, limit });
+      const products = (catalog?.products || []).map(product => this.normalizeCatalogProduct(product));
+
+      return {
+        products,
+        count: products.length,
+        nextPageCursor: catalog?.nextPageCursor,
+      };
+    } catch (error) {
+      if (this.isEmptyBusinessCatalogError(error)) return this.emptyBusinessCatalog();
+      throw error;
+    }
+  }
 
   async getGroups(): Promise<object[]> {
     if (!this.sock) return [];

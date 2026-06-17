@@ -111,6 +111,7 @@ Open **http://localhost:7834** for the dashboard when `DASHBOARD_ENABLED=true`.
 | Health | `GET /api/health` · `GET /api/health/ready` · `GET /api/health/live` |
 | Provider | `GET /api/provider` · `POST /api/provider/switch` · `POST /api/provider/test` |
 | Sessions | `GET/POST /api/sessions` · `POST /api/sessions/:id/start` · `GET /api/sessions/:id/qr` · `POST /api/sessions/:id/stop` |
+| Business | `GET /api/sessions/:id/business/catalog` |
 | Internal Messages | `POST /api/sessions/:id/messages/send` · `/send-image` · `/send-document` · `/reply` · `POST /typing` · `POST /read` · `GET /messages/:messageId/media` |
 | History | `GET /api/sessions/messages/history` · `GET /api/sessions/:id/conversations/:phone` · `GET /api/sessions/messages/stats` |
 | Webhooks | `GET/POST /api/webhooks` · `PUT/DELETE /api/webhooks/:id` · `POST /api/webhooks/:id/test` · `GET /api/webhooks/logs` |
@@ -167,6 +168,42 @@ curl -X POST http://localhost:7834/v1/messages \
     "text":{"body":"Hello from Wahuy Official mode"}
   }'
 ```
+
+### Read WhatsApp Business catalog
+
+For a ready Internal session, fetch the connected account's WhatsApp Business catalog read-only:
+
+```bash
+curl http://localhost:7834/api/sessions/main/business/catalog \
+  -H "X-API-Key: <key>"
+```
+
+Response shape:
+
+```json
+{
+  "success": true,
+  "data": {
+    "products": [
+      {
+        "id": "product-id",
+        "name": "Product name",
+        "description": "Description",
+        "currency": "IDR",
+        "price": 100000,
+        "images": ["https://..."],
+        "url": "https://...",
+        "isHidden": false,
+        "availability": "in stock"
+      }
+    ],
+    "count": 1,
+    "nextPageCursor": null
+  }
+}
+```
+
+No catalog/non-business catalog state returns `200` with `data.products: []` and `count: 0`. Missing sessions return `404 SESSION_NOT_FOUND`; sessions that are not ready return `400 SESSION_NOT_READY`.
 
 ### Register an outbound webhook
 
